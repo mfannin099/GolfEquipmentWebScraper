@@ -3,6 +3,61 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import time
+import re
+
+def parse_specs(description_div):
+    spec_divs = description_div.find_elements(By.CSS_SELECTOR, "div.yj6qo")
+    specs = {
+        'weight': 'N/A',
+        'loft': 'N/A',
+        'lie': 'N/A',
+        'head': 'N/A',
+        'shaft': 'N/A',
+        'grip': 'N/A',
+        'headcover': 'N/A'
+    }
+    
+    for div in spec_divs:
+        text = div.get_attribute('textContent').strip()
+        text = text.replace('\xa0', ' ')  # Remove non-breaking spaces
+        
+        if not text:
+            continue
+            
+        # Split on dashes (3 or more)
+        parts = re.split(r'-{3,}', text)
+        
+        if len(parts) >= 2:
+            label = parts[0].strip().upper()
+            value = parts[1].strip()
+            
+            if 'WEIGHT' in label:
+                specs['weight'] = value
+            elif 'LOFT' in label:
+                specs['loft'] = value
+            elif 'LIE' in label:
+                specs['lie'] = value
+            elif 'HEAD' in label:
+                specs['head'] = value
+            elif 'SHAFT' in label:
+                specs['shaft'] = value
+            elif 'GRIP' in label:
+                specs['grip'] = value
+            elif 'HEADCOVER' in label:
+                specs['headcover'] = value
+
+    # Also check <p> tags for weight
+    paragraphs = description_div.find_elements(By.CSS_SELECTOR, "p")
+    for p in paragraphs:
+        text = p.get_attribute('textContent').strip().replace('\xa0', ' ')
+        parts = re.split(r'-{3,}', text)
+        if len(parts) >= 2:
+            label = parts[0].strip().upper()
+            value = parts[1].strip()
+            if 'WEIGHT' in label and specs['weight'] == 'N/A':
+                specs['weight'] = value
+
+    return specs
 
 # Set up the driver
 driver = webdriver.Chrome()
@@ -40,6 +95,13 @@ print(f"Found {len(putters)} products\n")
 putter_name = []
 putter_price = []
 putter_link = []
+putter_weight = []
+putter_loft = []
+putter_lie = []
+putter_head = []
+putter_shaft = []
+putter_grip = []
+putter_headcover = []
 
 for index in range(len(putters)):
     try:
