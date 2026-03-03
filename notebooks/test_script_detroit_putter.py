@@ -80,6 +80,47 @@ for index in range(len(putters)):
 
         ## TODO: Look at inspect element to see what can be pulled
 
+        description_div = driver.find_element(By.CSS_SELECTOR, "div.product__description.rte.quick-add-hidden")
+        spec_divs = description_div.find_elements(By.CSS_SELECTOR, "div.yj6qo")
+        for div in spec_divs:
+            text = div.get_attribute('textContent').strip()
+            if text:
+                print(repr(text))  # repr() shows hidden characters
+
+        # Weight is in a <p> tag
+        # paragraphs = description_div.find_elements(By.CSS_SELECTOR, "p")
+        # weight = "N/A"
+        # for p in paragraphs:
+        #     text = p.get_attribute('textContent').strip()
+        #     if 'WEIGHT' in text:
+        #         weight = text.split('---')[-1].strip().lstrip('-').strip()
+
+        # # Rest of specs are in yj6qo divs
+        # spec_divs = description_div.find_elements(By.CSS_SELECTOR, "div.yj6qo")
+        # specs = {}
+        # for div in spec_divs:
+        #     text = div.get_attribute('textContent').strip()
+        #     if '---' in text and text:
+        #         parts = text.split('---')
+        #         if len(parts) == 2:
+        #             label = parts[0].strip()
+        #             value = parts[1].strip().lstrip('-').strip()
+        #             specs[label] = value
+
+        # # Access each value
+        # weight = weight
+        # head = specs.get('HEAD', 'N/A')
+        # shaft = specs.get('SHAFT', 'N/A')
+        # grip = specs.get('GRIP', 'N/A')
+        # headcover = specs.get('HEADCOVER', 'N/A')
+
+        # print(f"Weight: {weight}")
+        # print(f"Head: {head}")
+        # print(f"Shaft: {shaft}")
+        # print(f"Grip: {grip}")
+        # print(f"Headcover: {headcover}")
+
+
 
 
         ## Returnig to the listing page
