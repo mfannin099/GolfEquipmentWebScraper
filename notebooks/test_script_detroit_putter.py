@@ -5,6 +5,25 @@ from selenium.webdriver.support import expected_conditions as EC
 import time
 import re
 
+# Example of what was first done
+# for putter in putters:
+#     try:
+#         card_info = putter.find_element(By.CSS_SELECTOR, "div.card__information")
+
+#         name_element = card_info.find_element(By.CSS_SELECTOR, "h3 a.full-unstyled-link")
+#         name = name_element.get_attribute('textContent').strip()
+        
+
+#         price_element = putter.find_element(By.CSS_SELECTOR, "span.price-item--regular")
+#         price = price_element.get_attribute('textContent').strip()
+
+#         print(name)
+#         print(price)
+
+#     except Exception as e:
+#         print(f"Error extracting putter: {e}")
+#         continue
+
 def parse_specs(description_div):
     spec_divs = description_div.find_elements(By.CSS_SELECTOR, "div.yj6qo")
     specs = {
@@ -73,23 +92,7 @@ putter_list = driver.find_element(By.CSS_SELECTOR, "ul#Slider-template--16677983
 putters = putter_list.find_elements(By.CSS_SELECTOR, "li.grid__item")
 print(f"Found {len(putters)} products\n")
 
-# for putter in putters:
-#     try:
-#         card_info = putter.find_element(By.CSS_SELECTOR, "div.card__information")
 
-#         name_element = card_info.find_element(By.CSS_SELECTOR, "h3 a.full-unstyled-link")
-#         name = name_element.get_attribute('textContent').strip()
-        
-
-#         price_element = putter.find_element(By.CSS_SELECTOR, "span.price-item--regular")
-#         price = price_element.get_attribute('textContent').strip()
-
-#         print(name)
-#         print(price)
-
-#     except Exception as e:
-#         print(f"Error extracting putter: {e}")
-#         continue
 
 
 putter_name = []
