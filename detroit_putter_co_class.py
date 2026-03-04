@@ -1,8 +1,10 @@
-import time
-import pandas as pd
-import re
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import time
+import re
+import pandas as pd
 
 class DetroitPutterScraper:
     BASE_URL = "https://detroitputterco.com"
@@ -129,3 +131,16 @@ class DetroitPutterScraper:
         self.build_dataframe()
         self.driver.close()
         return self.df
+
+    def save(self, filename="detroit_putter_co", filepath=None):
+        if self.df is None:
+            print("No dataframe to save. Run build_dataframe() first.")
+            return
+
+        if filepath:
+            full_path = f"{filepath}/{filename}"
+        else:
+            full_path = filename
+            
+        self.df.to_csv(f"{full_path}.csv", index=False)
+        print(f"Saved to {full_path}.csv")
