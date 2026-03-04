@@ -2,14 +2,20 @@
 # # TODO: Create a class that will handle pulling for putters and accessories
 import sys
 import os
+import pandas as pd
 sys.path.append('..')
 
 from detroit_putter_co_class import DetroitPutterScraper
 
-putter_scraper = DetroitPutterScraper()
-df=putter_scraper.run()
-print(df)
-print(df.shape)
+filepath_to_check = r"../data/detroit_putters.csv"
 
-putter_scraper.save(filename="detroit_putters", filepath=r"../data/")
+if os.path.exists(filepath_to_check):
+    print("Data already exists, loading from file...")
+    df = pd.read_excel(filepath_to_check)
+    print(df)
+    print(df.shape)
+else:
+    putter_scraper = DetroitPutterScraper()
+    df=putter_scraper.run()
+    putter_scraper.save(filename="detroit_putters", filepath=r"../data/")
 
