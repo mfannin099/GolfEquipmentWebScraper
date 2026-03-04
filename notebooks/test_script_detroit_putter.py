@@ -1,5 +1,8 @@
-# # TODO: Create similar feature but for accessories
-# # TODO: Create a class that will handle pulling for putters and accessories
+# TODO: Create similar feature but for accessories
+# TODO: Create Data Pipeline/cleaning pipeline
+# TODO: Look more into what selenium can do
+
+
 import sys
 import os
 import pandas as pd
