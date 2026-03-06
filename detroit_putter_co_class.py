@@ -144,3 +144,113 @@ class DetroitPutterScraper:
             
         self.df.to_csv(f"{full_path}.csv", index=False)
         print(f"Saved to {full_path}.csv")
+
+
+
+
+class DetroitAccessoryScraper:
+    BASE_URL = "https://detroitputterco.com"
+    ACCESSORIES_URL = "https://detroitputterco.com/pages/accessories-gear"
+    ACCESSORY_LIST_CSS = "ul#Slider-template--16680839086324__1023473d-cd69-4c14-a8a2-07abf41be0e5"
+
+    def __init__(self):
+        self.driver = webdriver.Chrome()
+        self.accessory_name = []
+        self.accessory_price = []
+        self.accessory_link = []
+        self.accessory_description = []
+        self.df = None
+
+    def load_page(self):
+        self.driver.get(self.BASE_URL)
+        self.driver.get(self.ACCESSORIES_URL)
+        time.sleep(2)
+
+    def get_accessories(self):
+        accessory_list = self.driver.find_element(By.CSS_SELECTOR, self.ACCESSORY_LIST_CSS)
+        return accessory_list.find_elements(By.CSS_SELECTOR, "li.grid__item")
+
+    def parse_description(self, description_div):
+        details = []
+        try:
+            elements = description_div.find_elements(By.CSS_SELECTOR, "p, h3")
+            for el in elements:
+                text = el.get_attribute('textContent').strip().replace('\\xa0', ' ')
+                print(f"Tag: {el.tag_name} | Text: {text}")  # debug line
+                if text:
+                    details.append(text)
+        except:
+            pass
+        return ' '.join(details) if details else 'N/A'
+
+    def scrape_accessory(self, index):
+        accessories = self.get_accessories()
+        accessory = accessories[index]
+        card_info = accessory.find_element(By.CSS_SELECTOR, "div.card__information")
+
+        name_element = card_info.find_element(By.CSS_SELECTOR, "h3 a.full-unstyled-link")
+        name = name_element.get_attribute('textContent').strip()
+        price = accessory.find_element(By.CSS_SELECTOR, "span.price-item--regular").get_attribute('textContent').strip()
+        product_link = name_element.get_attribute('href')
+
+        print(f"Name: {name} | Price: {price} | Link: {product_link}")
+
+        self.driver.get(product_link)
+        time.sleep(2)
+
+        # Scrape description from product page
+        description = 'N/A'
+        try:
+            description_div = self.driver.find_element(By.CSS_SELECTOR, "div.product__description.rte.quick-add-hidden")
+            description = self.parse_description(description_div)
+        except:
+            print(f"No description found for {name}")
+
+        print(f"Description: {description}")
+
+        self.accessory_name.append(name)
+        self.accessory_price.append(price)
+        self.accessory_link.append(product_link)
+        self.accessory_description.append(description)
+
+    def build_dataframe(self):
+        self.df = pd.DataFrame({
+            'Name': self.accessory_name,
+            'Price': self.accessory_price,
+            'Link': self.accessory_link,
+            'Description': self.accessory_description
+        })
+        return self.df
+
+    def run(self):
+        self.load_page()
+        accessories = self.get_accessories()
+        print(f"Found {len(accessories)} accessories\\n")
+
+        for index in range(len(accessories)):
+            try:
+                print(f"Processing accessory {index + 1}/{len(accessories)}...")
+                self.scrape_accessory(index)
+                self.driver.get(self.ACCESSORIES_URL)
+                time.sleep(2)
+            except Exception as e:
+                print(f"Error on accessory {index + 1}: {e}")
+                self.driver.get(self.ACCESSORIES_URL)
+                time.sleep(2)
+                continue
+
+        self.build_dataframe()
+        self.driver.close()
+        return self.df
+
+    def save(self, filename="detroit_accessories", filepath=None):
+        if self.df is None:
+            print("No dataframe to save. Run build_dataframe() first.")
+            return
+        if filepath:
+            os.makedirs(filepath, exist_ok=True)
+            full_path = f"{filepath}/{filename}"
+        else:
+            full_path = filename
+        self.df.to_csv(f"{full_path}.csv", index=False)
+        print(f"Saved to {full_path}.csv")
