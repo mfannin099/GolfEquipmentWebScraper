@@ -10,6 +10,24 @@ sys.path.append('..')
 
 from detroit_putter_co_class import DetroitPutterScraper, DetroitAccessoryScraper
 
+filepath_to_check = r"../data/detroit_putters.csv"
+filepath_to_check2 = r"../data/detroit_putters.csv"
+
+if os.path.exists(filepath_to_check):
+    print("Data already exists, loading from file...")
+    df = pd.read_csv(filepath_to_check)
+    print(df)
+    print(df.columns)
+    print(df.shape)
+else:
+    putter_scraper = DetroitPutterScraper()
+    df=putter_scraper.run()
+    putter_scraper.save(filename="detroit_putters", filepath=r"../data/")
+
+acc_scaper = DetroitAccessoryScraper()
+df=acc_scaper.run()
+print(df)
+
 # filepath_to_check = r"../data/detroit_putters.csv"
 
 # if os.path.exists(filepath_to_check):
@@ -22,7 +40,3 @@ from detroit_putter_co_class import DetroitPutterScraper, DetroitAccessoryScrape
 #     putter_scraper = DetroitPutterScraper()
 #     df=putter_scraper.run()
 #     putter_scraper.save(filename="detroit_putters", filepath=r"../data/")
-
-acc_scaper = DetroitAccessoryScraper()
-df=acc_scaper.run()
-print(df)

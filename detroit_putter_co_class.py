@@ -176,7 +176,6 @@ class DetroitAccessoryScraper:
             elements = description_div.find_elements(By.CSS_SELECTOR, "p, h3")
             for el in elements:
                 text = el.get_attribute('textContent').strip().replace('\\xa0', ' ')
-                print(f"Tag: {el.tag_name} | Text: {text}")  # debug line
                 if text:
                     details.append(text)
         except:
