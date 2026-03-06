@@ -5,6 +5,7 @@ from selenium.webdriver.support import expected_conditions as EC
 import time
 import re
 import pandas as pd
+import os
 
 class DetroitPutterScraper:
     BASE_URL = "https://detroitputterco.com"

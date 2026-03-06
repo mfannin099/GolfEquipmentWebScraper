@@ -1,4 +1,3 @@
-# TODO: Create similar feature but for accessories
 # TODO: Create Data Pipeline/cleaning pipeline
 # TODO: Look more into what selenium can do
 
@@ -24,6 +23,7 @@ if os.path.exists(filepath_to_check) and os.path.exists(filepath_to_check2):
     print(df2)
     print(df2.columns)
     print(df2.shape)
+
 else:
     if not os.path.exists(filepath_to_check):
         print("Putter data not found, scraping...")
