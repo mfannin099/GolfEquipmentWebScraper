@@ -9,6 +9,7 @@ from selenium.webdriver.support import expected_conditions as EC
 import pandas as pd
 import sqlite3
 import os
+import re
 
 class RetailerScraper:
 
@@ -54,7 +55,6 @@ class RetailerScraper:
         self.df.to_sql("retailers", conn, if_exists="replace",index=False)
         conn.close()
         print(f"Saved {len(self.df)} retailers to {db_name}")
-        
 
     def run(self):
         try:
@@ -67,15 +67,46 @@ class RetailerScraper:
             self.driver.quit()
 
 
+class dataCleaning:
+
+    def __init__(self,df):
+        self.df = df.copy()
+
+    def parse_address(self):
+        # Regex pattern to extract street, city, state, zip
+        pattern = r"^(.+),\s*(.+),\s*([A-Z]{2})\s*(\d{5})$"
+        
+        extracted = self.df["address"].str.extract(pattern)
+        extracted.columns = ["street", "city", "state", "zip"]
+        
+        self.df = pd.concat([self.df, extracted], axis=1)
+        return self.df
+
+    def run_clean(self):
+        self.parse_address()
+
+        return self.df
+        
+
+
+
+
 if __name__ == "__main__":
     db_path = "../data/retailers.db"
 
     if os.path.exists(db_path):
         print("DB already exists, loading from file...")
+
+        # Loading from Sqllite
         conn = sqlite3.connect(db_path)
         df = pd.read_sql("SELECT * FROM retailers", conn)
         conn.close()
-        print(df)
+
+        # Begin cleaning
+        cleaner = dataCleaning(df)
+        clean_df = cleaner.parse_address()
+        print(clean_df)
+
     else:
         print("DB not found, scraping...")
         scraper = RetailerScraper(timeout=3, headless=False)
