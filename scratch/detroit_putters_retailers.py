@@ -62,6 +62,7 @@ class RetailerScraper:
             self.parse_retailers()
             self.print_retailers()
             df = self.create_df()
+            self.save_to_db("../data/retailers.db")
         finally:
             self.driver.quit()
 
