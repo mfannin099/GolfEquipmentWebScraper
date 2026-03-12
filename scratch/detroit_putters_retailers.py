@@ -49,7 +49,12 @@ class RetailerScraper:
         self.df = pd.DataFrame(self.retailers, columns=['name', 'address'])
         return self.df
 
-    def 
+    def save_to_db(self, db_name="retailers.db"):
+        conn = sqlite3.connect(db_name)
+        self.df.to_sql("retailers", conn, if_exists="replace",index=False)
+        conn.close()
+        print(f"Saved {len(self.df)} retailers to {db_name}")
+        
 
     def run(self):
         try:
