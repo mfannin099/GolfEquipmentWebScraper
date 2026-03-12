@@ -1,4 +1,3 @@
-## TODO - scrape retailers page 
 ## TODO - clean
 ## TODO - parse their websites/create some sort of search
 
@@ -9,6 +8,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import pandas as pd
 import sqlite3
+import os
 
 class RetailerScraper:
 
@@ -68,7 +68,16 @@ class RetailerScraper:
 
 
 if __name__ == "__main__":
-    scraper = RetailerScraper(timeout=3, headless=False)
-    scraper.run()
-    
-    print(scraper.df)
+    db_path = "../data/retailers.db"
+
+    if os.path.exists(db_path):
+        print("DB already exists, loading from file...")
+        conn = sqlite3.connect(db_path)
+        df = pd.read_sql("SELECT * FROM retailers", conn)
+        conn.close()
+        print(df)
+    else:
+        print("DB not found, scraping...")
+        scraper = RetailerScraper(timeout=3, headless=False)
+        scraper.run()
+        print(scraper.df)
