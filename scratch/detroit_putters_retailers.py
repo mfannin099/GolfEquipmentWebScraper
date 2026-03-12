@@ -7,6 +7,8 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+import pandas as pd
+import sqlite3
 
 class RetailerScraper:
 
@@ -43,15 +45,24 @@ class RetailerScraper:
             print(f"  {r['address']}")
             print()
 
+    def create_df(self):
+        self.df = pd.DataFrame(self.retailers, columns=['name', 'address'])
+        return self.df
+
+    def 
+
     def run(self):
         try:
             self.load_page()
             self.parse_retailers()
             self.print_retailers()
+            df = self.create_df()
         finally:
             self.driver.quit()
 
 
 if __name__ == "__main__":
-    scraper = RetailerScraper(timeout=10, headless=False)
+    scraper = RetailerScraper(timeout=3, headless=False)
     scraper.run()
+    
+    print(scraper.df)
