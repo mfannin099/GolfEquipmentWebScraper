@@ -11,6 +11,10 @@ import sqlite3
 import os
 import re
 
+pd.set_option("display.max_columns", None)
+pd.set_option("display.width", None)
+pd.set_option("display.max_colwidth", None)
+
 class RetailerScraper:
 
     URL = "https://detroitputterco.com/pages/retailer-locations-1"
