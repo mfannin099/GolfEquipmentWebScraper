@@ -1,7 +1,4 @@
 
-## TODO - clean address, location from the dataframe in the dataCleaning class, lower case strings amd remove punctation if it exists
-
-
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -10,6 +7,7 @@ import pandas as pd
 import sqlite3
 import os
 import re
+import string
 
 pd.set_option("display.max_columns", None)
 pd.set_option("display.width", None)
@@ -72,9 +70,22 @@ class RetailerScraper:
 
 
 class dataCleaning:
+    _punct_table = str.maketrans("", "", string.punctuation)
 
     def __init__(self,df):
         self.df = df.copy()
+
+    def clean_address(self, extracted):
+        for column in extracted.columns:
+            extracted[column] = (
+                extracted[column]
+                .astype("string")
+                .str.lower()
+                .str.translate(self._punct_table)
+                .str.replace(r"\s+", " ", regex=True)
+                .str.strip()
+            )
+        return extracted
 
     def parse_address(self):
         # Regex pattern to extract street, city, state, zip
@@ -82,6 +93,7 @@ class dataCleaning:
         
         extracted = self.df["address"].str.extract(pattern)
         extracted.columns = ["street", "city", "state", "zip"]
+        extracted = self.clean_address(extracted)
         
         self.df = pd.concat([self.df, extracted], axis=1)
         return self.df
