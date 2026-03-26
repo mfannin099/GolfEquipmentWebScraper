@@ -1,7 +1,3 @@
-## TODO - clean
-## TODO - parse their websites/create some sort of search
-
-
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -9,6 +5,7 @@ from selenium.webdriver.support import expected_conditions as EC
 import pandas as pd
 import sqlite3
 import os
+import string
 import re
 
 pd.set_option("display.max_columns", None)
@@ -72,22 +69,46 @@ class RetailerScraper:
 
 
 class dataCleaning:
+    _punct_table = str.maketrans("", "", string.punctuation)
 
-    def __init__(self,df):
+    def __init__(self, df):
         self.df = df.copy()
 
-    def parse_address(self):
-        # Regex pattern to extract street, city, state, zip
-        pattern = r"^(.+),\s*(.+),\s*([A-Z]{2})\s*(\d{5})$"
-        
-        extracted = self.df["address"].str.extract(pattern)
+    def _normalize_text(self, series):
+        return (
+            series.astype("string")
+            .str.lower()
+            .str.translate(self._punct_table)
+            .str.replace(r"\s+", " ", regex=True)
+            .str.strip()
+        )
+
+    def clean_address_location(self):
+        address = (
+            self.df["address"]
+            .astype("string")
+            .str.replace(r"\s+", " ", regex=True)
+            .str.strip()
+        )
+
+        extracted = address.str.extract(
+            r"^(.*?),\s*(.*?),\s*([A-Z]{2})\s*(\d{5})(?:-\d{4})?$"
+        )
         extracted.columns = ["street", "city", "state", "zip"]
-        
+
+        self.df["address"] = self._normalize_text(extracted["street"].fillna(address))
+        self.df["location"] = (
+            self._normalize_text(extracted["city"].fillna(""))
+            .str.cat(self._normalize_text(extracted["state"].fillna("")), sep=" ")
+            .str.cat(extracted["zip"].fillna("").astype("string"), sep=" ")
+            .str.replace(r"\s+", " ", regex=True)
+            .str.strip()
+        )
         self.df = pd.concat([self.df, extracted], axis=1)
         return self.df
 
     def run_clean(self):
-        self.parse_address()
+        self.clean_address_location()
 
         return self.df
         
@@ -108,7 +129,7 @@ if __name__ == "__main__":
 
         # Begin cleaning
         cleaner = dataCleaning(df)
-        clean_df = cleaner.parse_address()
+        clean_df = cleaner.run_clean()
         print(clean_df)
 
     else:
