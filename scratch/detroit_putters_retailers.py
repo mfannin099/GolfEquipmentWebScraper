@@ -7,7 +7,6 @@ import pandas as pd
 import sqlite3
 import os
 import re
-import string
 
 pd.set_option("display.max_columns", None)
 pd.set_option("display.width", None)
@@ -70,31 +69,30 @@ class RetailerScraper:
 
 
 class dataCleaning:
-    _punct_table = str.maketrans("", "", string.punctuation)
-
     def __init__(self,df):
         self.df = df.copy()
 
     def clean_address(self, extracted):
+        # Normalize each parsed address part so downstream matching is consistent.
         for column in extracted.columns:
             extracted[column] = (
                 extracted[column]
                 .astype("string")
                 .str.lower()
-                .str.translate(self._punct_table)
+                .str.replace(r"[^\w\s]", "", regex=True)
                 .str.replace(r"\s+", " ", regex=True)
                 .str.strip()
             )
         return extracted
 
     def parse_address(self):
-        # Regex pattern to extract street, city, state, zip
+        # Split the full address into structured parts.
         pattern = r"^(.+),\s*(.+),\s*([A-Z]{2})\s*(\d{5})$"
-        
+
         extracted = self.df["address"].str.extract(pattern)
         extracted.columns = ["street", "city", "state", "zip"]
         extracted = self.clean_address(extracted)
-        
+
         self.df = pd.concat([self.df, extracted], axis=1)
         return self.df
 
@@ -109,14 +107,13 @@ if __name__ == "__main__":
     if os.path.exists(db_path):
         print("DB already exists, loading from file...")
 
-        # Loading from Sqllite
+        # Load the retailer table from SQLite and clean it in memory.
         conn = sqlite3.connect(db_path)
         df = pd.read_sql("SELECT * FROM retailers", conn)
         conn.close()
 
-        # Begin cleaning
         cleaner = dataCleaning(df)
-        clean_df = cleaner.parse_address()
+        clean_df = cleaner.run_clean()
         print(clean_df)
 
     else:
