@@ -14,3 +14,5 @@
 - [ ] Add more brands beyond Callaway (TaylorMade, Titleist, etc.) - just extend `BRANDS` in `config.py`, no scraper changes needed.
 - [ ] Add retry/backoff handling for network errors and Cloudflare challenge timeouts.
 - [ ] Decide on a run cadence (e.g. daily) and wire up scheduling once the pipeline is stable.
+- [ ] Introduce rate limiting... can only pull so much information so quickly
+- [ ] Review what additional pieces of data can be gathered for both sites, add date pulled
