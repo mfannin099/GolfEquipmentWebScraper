@@ -14,9 +14,10 @@
 - [ ] **rockbottomgolf.com can throttle/lock out a session entirely**: after enough rapid automated Chrome sessions in a short window (e.g. repeated test runs during development), Cloudflare stopped resolving its JS challenge at all - even a real, visible, non-headless browser got stuck on "Just a moment..." indefinitely. `RATE_LIMIT_SECONDS` and `MAX_VARIANT_LOOKUPS` reduce how much load we put on it per run, but don't fully prevent this if you run the scraper repeatedly back-to-back while testing. If a run hangs on `_wait_for_results`, wait a while (get more than one Cloudflare cooldown period) before trying again rather than immediately retrying.
 
 ## Next up
-- [ ] **MAP-hidden prices on carlsgolfland.com**: "Add to Cart for Price" items return `price=None` even after variant resolution for some products - unlike rockbottomgolf.com, the real price isn't in that product's `jsonConfig` at all for those SKUs. Need to check whether it shows up after simulating "add to cart" (may require a session/cart API call) or just isn't exposed pre-checkout.
 - [ ] Add pagination support end-to-end (rockbottomgolf scraper only grabs page 1 by default; wire up `max_pages` the way carlsgolfland's is).
-- [ ] Persist results over time (SQLite, like the Detroit Putter Co. retailer scraper) instead of overwriting a single CSV, so price history can be tracked. Include a "date pulled" column so historical runs are comparable.
+- [ ] Persist results over time (SQLite, like the Detroit Putter Co. retailer scraper) instead of overwriting a single CSV, so price history can be tracked. Include a "date pulled" column so historical runs are comparable. Add date scrapped, append transactions, create some sort of key to check for duplicate
 - [ ] Add more brands beyond Callaway (TaylorMade, Titleist, etc.) - just extend `BRANDS` in `config.py`, no scraper changes needed.
 - [ ] Decide on a run cadence (e.g. daily) and wire up scheduling once the pipeline is stable.
-- [ ] Review what additional pieces of data can be gathered for both sites (e.g. shaft/flex options, stock status, sale badges) beyond name + price.
+- [ ] Review what additional pieces of data can be gathered for both sites (e.g. shaft/flex options, stock status, sale badges) beyond name + price... focus on just Mens clubs
+- [ ] Look for sales, deals, etc for clubs
+- [ ] Look into other websites that may not have the cloudflare issueß
