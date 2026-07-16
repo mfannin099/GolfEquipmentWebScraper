@@ -15,8 +15,16 @@ iron-set size, e.g. "(7 Iron Set)", as its own product/listing entry).
 fairway_wood_7 isn't - loft is a same-page dropdown - so for that
 club_type we open each product page and select the matching loft
 option to read its price.
+
+Sale/discount info (a "Their Price $X - Save $Y (Z% Off)" block) is
+already present right on the listing card, so on_sale/original_price/
+discount_pct come for free with no extra product-page visit. Stock
+status isn't shown on the listing, and isn't worth an extra request on
+a Cloudflare-fronted site just for that, so it's always None here
+(carlsgolfland.com's scraper does report it).
 """
 
+import re
 from urllib.parse import quote
 
 from selenium import webdriver
@@ -26,11 +34,22 @@ from selenium.webdriver.support.select import Select
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-from config import BRANDS, CLUB_TYPES, VARIANT_TARGETS, RATE_LIMIT_SECONDS, MAX_VARIANT_LOOKUPS, build_query
+from config import (
+    BRANDS,
+    CLUB_TYPES,
+    VARIANT_TARGETS,
+    RATE_LIMIT_SECONDS,
+    MAX_VARIANT_LOOKUPS,
+    MENS_ONLY_EXCLUDE_TERMS,
+    build_query,
+)
 from rate_limiter import RateLimiter
 
 BASE_URL = "https://www.rockbottomgolf.com"
 SITE = "rockbottomgolf.com"
+
+# "Their Price $549.99 - Save $310.00 (56% Off)"
+SAVINGS_RE = re.compile(r"Their Price\s*\$([\d,]+\.\d+).*?\(([\d.]+)%\s*Off\)", re.IGNORECASE | re.DOTALL)
 
 
 class RockBottomGolfScraper:
@@ -85,6 +104,22 @@ class RockBottomGolfScraper:
         except ValueError:
             return None
 
+    def parse_savings(self, card) -> tuple[float | None, float | None]:
+        """Reads the "Their Price $X - Save $Y (Z% Off)" block already on
+        the listing card, if present. Returns (original_price, discount_pct).
+        """
+        try:
+            text = card.find_element(
+                By.CSS_SELECTOR, ".card-text--price"
+            ).get_attribute("textContent")
+        except Exception:
+            return None, None
+
+        match = SAVINGS_RE.search(text.replace("\n", " "))
+        if not match:
+            return None, None
+        return float(match.group(1).replace(",", "")), float(match.group(2))
+
     def scrape_current_page(self):
         cards = self.driver.find_elements(By.CSS_SELECTOR, "li.product")
         for card in cards:
@@ -95,18 +130,23 @@ class RockBottomGolfScraper:
             except Exception:
                 continue
 
-            if self.brand.lower() not in name.lower():
+            name_lower = name.lower()
+            if self.brand.lower() not in name_lower:
+                continue
+
+            if any(term in name_lower for term in MENS_ONLY_EXCLUDE_TERMS):
                 continue
 
             # For iron sets, the set size is baked into the listing name
             # (e.g. "(7 Iron Set)") rather than a same-page variant, so
             # filtering here is enough - no product page visit needed.
             if self.club_type == "iron_set" and self.variant_target:
-                if self.variant_target.lower() not in name.lower():
+                if self.variant_target.lower() not in name_lower:
                     continue
 
             link = card.find_element(By.CSS_SELECTOR, "h3.card-title a").get_attribute("href")
             price = self.parse_price(card)
+            original_price, discount_pct = self.parse_savings(card)
 
             self.results.append({
                 "brand": self.brand,
@@ -114,6 +154,10 @@ class RockBottomGolfScraper:
                 "name": name,
                 "variant": None,
                 "price": price,
+                "original_price": original_price,
+                "discount_pct": discount_pct,
+                "on_sale": discount_pct is not None,
+                "stock_status": None,
                 "link": link,
                 "site": SITE,
             })
@@ -225,4 +269,5 @@ if __name__ == "__main__":
             results = scraper.run()
             print(f"\n=== {brand} {club_type} ({len(results)} results) ===")
             for r in results:
-                print(f"  {r['name']} [{r['variant']}]: {r['price']}")
+                print(f"  {r['name']} [{r['variant']}]: {r['price']} "
+                      f"(sale={r['on_sale']}, was={r['original_price']}, -{r['discount_pct']}%)")

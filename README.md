@@ -25,18 +25,18 @@ Working scripts and early drafts, not part of the "stable" package:
 ### `scratch/club_price_tracker/`
 A parameterized club price tracker covering rockbottomgolf.com and carlsgolfland.com, driven by a shared config so new brands/club types don't require code changes:
 
-- **`config.py`** — `BRANDS` and `CLUB_TYPES` (currently drivers, 7-woods, and iron sets for Callaway). `build_query()` combines a brand + club type into a search string.
-- **`carlsgolfland_scraper.py`** — `CarlsGolflandScraper` scrapes name + price via plain `requests` + BeautifulSoup. The site isn't behind Cloudflare, so no browser automation is needed; it follows the site's search redirect to its Searchspring-powered results page and paginates with `?p=N`.
-- **`rockbottomgolf_scraper.py`** — `RockBottomGolfScraper` scrapes the same fields via Selenium. rockbottomgolf.com sits behind a Cloudflare JS challenge, so it needs a real browser to render, and headless Chrome gets flagged by Cloudflare's bot detection — it defaults to a visible browser window. Some prices are hidden behind "Add To Cart To See Price" (MAP policy), but the real price is still present in the page's HTML, just visually hidden, so it's read directly from the DOM.
+- **`config.py`** — `BRANDS` (Callaway, TaylorMade, Titleist, Ping, Cobra, Mizuno) and `CLUB_TYPES` (drivers, 7-woods, iron sets). `build_query()` combines a brand + club type into a search string. Also holds `MENS_ONLY_EXCLUDE_TERMS` (filters out women's/junior/left-handed listings), `VARIANT_TARGETS` (which loft/set-makeup option to resolve an exact price for), `RATE_LIMIT_SECONDS`, and `MAX_VARIANT_LOOKUPS` (caps how many listings get an extra product-page request per run).
+- **`carlsgolfland_scraper.py`** — `CarlsGolflandScraper` scrapes name, price, sale status, discount %, and stock status via plain `requests` + BeautifulSoup. The site isn't behind Cloudflare, so no browser automation is needed; it follows the site's search redirect to its Searchspring-powered results page and paginates with `?p=N`. Products flagged "ON SALE" or needing a specific loft/set variant get one extra product-page request (capped by `MAX_VARIANT_LOOKUPS`) to read exact pricing/discount/stock off the page's embedded `jsonConfig` data.
+- **`rockbottomgolf_scraper.py`** — `RockBottomGolfScraper` scrapes the same fields via Selenium. rockbottomgolf.com sits behind a Cloudflare JS challenge, so it needs a real browser to render, and headless Chrome gets flagged by Cloudflare's bot detection — it defaults to a visible browser window, with retry/auto-restart around per-product lookups since that combination can be flaky. Some prices are hidden behind "Add To Cart To See Price" (MAP policy), but the real price is still present in the page's HTML, just visually hidden, so it's read directly from the DOM; sale/discount info comes from the listing card's "Save $X (Y% Off)" block, at no extra request cost.
 - **`test_scrapers.py`** — runs every brand × club type combination against both sites and saves results to `club_prices.csv`.
-- **`TODO.md`** — known gaps and next steps for this tracker (see below).
+- **`TODO.md`** — known gaps, next steps, and alternate-site research for this tracker (see below).
 
 ### `data/`
 Scraper output: `detroit_putters.csv`, `detroit_accessories.csv`, and `retailers.db`.
 
 ## Status
 
-This is early-stage/exploratory work — data collection is functional for Detroit Putter Co. (putters, accessories, retailers) and for Callaway club prices on rockbottomgolf.com/carlsgolfland.com, but there's no unified pipeline yet tying scraping → cleaning → storage together, the Rhoback script is just a scratch experiment, and the club price tracker still needs loft/set-variant-specific pricing (see `scratch/club_price_tracker/TODO.md`).
+This is early-stage/exploratory work — data collection is functional for Detroit Putter Co. (putters, accessories, retailers) and for men's driver/fairway-wood/iron-set prices (Callaway, TaylorMade, Titleist, Ping, Cobra, Mizuno) on rockbottomgolf.com/carlsgolfland.com, including sale/discount/stock status. There's no unified pipeline yet tying scraping → cleaning → storage together (results are still per-run CSVs, not queryable history), the Rhoback script is just a scratch experiment, and rockbottomgolf.com's Cloudflare protection makes it the fragile half of the club price tracker (see `scratch/club_price_tracker/TODO.md`).
 
 ## Setup
 

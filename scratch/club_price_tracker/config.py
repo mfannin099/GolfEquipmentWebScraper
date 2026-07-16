@@ -6,6 +6,11 @@ in this package picks it up automatically.
 
 BRANDS = [
     "Callaway",
+    "TaylorMade",
+    "Titleist",
+    "Ping",
+    "Cobra",
+    "Mizuno",
 ]
 
 # key -> search term used to build each site's query string
@@ -14,6 +19,21 @@ CLUB_TYPES = {
     "fairway_wood_7": "7 wood",
     "iron_set": "iron set",
 }
+
+# Case-insensitive substrings that mark a listing as not a standard
+# right-handed men's club (women's/junior/left-handed lines). Tracker is
+# scoped to men's clubs for now - filtered out in each scraper's listing
+# parse so they never make it into results or cost an extra product-page
+# request. Clear this list (or override per-run) if that scope changes.
+MENS_ONLY_EXCLUDE_TERMS = [
+    "women",
+    "ladies",
+    "junior",
+    "girl",
+    "left handed",
+    "lh ",
+    "(lh)",
+]
 
 
 def build_query(brand: str, club_type: str) -> str:
@@ -47,11 +67,16 @@ VARIANT_TARGETS = {
     },
 }
 
-# Per-product variant-price resolution (fairway_wood_7 on both sites,
-# iron_set on carlsgolfland) opens a separate page for every listing
-# result. Cap how many of those extra requests a single run makes so a
-# test run doesn't sit there hammering a Cloudflare-fronted site for
-# minutes - only the first N listing results get an exact variant price;
-# the rest keep whatever price the listing page showed. Set to None for
-# no cap.
+# Some data only exists on the product page, not the listing page: exact
+# variant price (fairway_wood_7 on both sites, iron_set on carlsgolfland),
+# stock status, and true discount/MSRP for carlsgolfland (its listing page
+# never shows a struck-through "was" price, only the current one - see
+# carlsgolfland_scraper.CarlsGolflandScraper._fetch_product_details).
+# Every one of those requires opening a separate page per listing result,
+# so this caps how many of those extra requests a single run makes -
+# only the first N eligible listing results get product-page detail; the
+# rest keep whatever the listing page showed (no stock/discount info, and
+# a family-level price where a variant applies). Keeps a test run from
+# sitting there hammering a Cloudflare-fronted site for minutes. Set to
+# None for no cap.
 MAX_VARIANT_LOOKUPS = 5
