@@ -1,43 +1,47 @@
 # Club Price Tracker - TODO
 
+## Priority: reduce reliance on Cloudflare-protected sites
+rockbottomgolf.com repeatedly locks out sessions after a burst of automated runs (see "Known issues" below), which has cost real dev time this project. Finding/adding sites that don't have this problem is the current top priority over new features.
+
+- [ ] **Build a 2ndswing.com scraper** - strongest candidate found so far. No Cloudflare, fully server-rendered (plain `requests` works), Magento-based (`.product-item` cards, same pattern as carlsgolfland). It's a **used/pre-owned marketplace** though, not new-club MSRP - each listing is one physical club with its own condition, price, and "WAS" price baked right into the card text (e.g. `Tour Edge | Hot Launch E523 | $91.99 | WAS | $137.99 | Mint | Dexterity: Right | Loft: 15° | Flex: Ladies | Shaft: ...`). Richer per-listing data than either current site, but a different product category (used vs. new) - a complementary addition, not a rockbottomgolf replacement. Would need its own `club_type` handling since it's per-unit inventory, not a family/variant model.
+- [ ] **Inspect globalgolf.com and worldwidegolfshops.com** - confirmed no Cloudflare challenge and real HTML returned, but listing/price selectors haven't been inspected yet. Do that before ruling either in or out.
+- [ ] **Re-check pgatoursuperstore.com** - a plain `requests` call only got a bare 302 redirect with no body; re-check following the redirect before concluding anything.
+- [ ] **Decide rockbottomgolf.com's fate**: keep hardening around the lockouts, or deprioritize/drop it once 1-2 Cloudflare-free sources are in place? Revisit once the sites above have been evaluated.
+
+## Known issues (rockbottomgolf.com)
+- [ ] **Can throttle/lock out a session entirely** after a burst of automated Chrome sessions in a short window (e.g. repeated test runs during development) - Cloudflare stops resolving its JS challenge at all, even for a real, visible, non-headless browser. `RATE_LIMIT_SECONDS` and `MAX_VARIANT_LOOKUPS` reduce load per run but don't fully prevent this with repeated back-to-back runs. If `_wait_for_results` hangs, wait out a cooldown period rather than retrying immediately.
+- [ ] **New sale/discount/men's-filter code needs a live end-to-end re-run** once the above cooldown clears - it hit that exact lockout mid-verification. The sale-parsing regex (`SAVINGS_RE`) is verified offline against real captured markup and the men's filter reuses logic already confirmed live on carlsgolfland, but neither has been confirmed live on rockbottomgolf itself yet.
+
+## Backlog
+
+### Data persistence & tracking
+- [ ] Persist results over time in SQLite (like the Detroit Putter Co. retailer scraper) instead of overwriting a single CSV, so price history is queryable. `run_timestamp` (in `test_scrapers.py`) is a step toward this but isn't real history yet.
+- [ ] Define a dedup key once persisted - e.g. `(site, brand, club_type, variant, name, run_timestamp)` - so reruns don't just pile up duplicate rows.
+- [ ] Price-drop/deal alerting: once history exists, compare each pull against the stored low/previous price and flag drops (start with a printed/logged summary; could grow into email/Slack).
+- [ ] Cross-site product matching: normalize names (strip suffixes like "- ON SALE", "2026", "Left Handed") so the same real-world club can be compared side-by-side across sites instead of showing up as unrelated rows.
+
+### Code quality & tooling
+- [ ] Add pagination support to rockbottomgolf's scraper (only grabs page 1 today; carlsgolfland's `max_pages` pattern already handles this).
+- [ ] Local parser tests using saved HTML fixtures, so selector/parsing logic can be iterated on without hitting live sites (and without risking rockbottomgolf's Cloudflare throttle) on every change.
+- [ ] Structured logging instead of `print()`, so a run's output can be reviewed from a file later.
+- [ ] Simple CLI (`argparse`) to run a single brand/club_type/site combo on demand instead of always running the full matrix.
+- [ ] Look for a lighter-weight path into rockbottomgolf.com (sitemap.xml, RSS/product feed, or a page type that sits outside the Cloudflare challenge).
+
+### Data enrichment
+- [ ] Shaft/flex option data: 2ndswing.com exposes this for free; carlsgolfland's `jsonConfig` blob (already fetched for variant/discount lookups) also has it and could be extracted the same way `variant_label` is now.
+
 ## Done
-- [x] Confirmed carlsgolfland.com is scrapeable with plain `requests` + BeautifulSoup (no Cloudflare protection).
-- [x] Confirmed rockbottomgolf.com requires Selenium - it's behind a Cloudflare JS challenge, and headless Chrome gets blocked, so it needs a visible browser window.
-- [x] Built parameterized scrapers for both sites keyed off `config.py` (`BRANDS`, `CLUB_TYPES`) so new brands/club types don't require code changes.
-- [x] Verified name+price extraction for Callaway drivers, fairway woods, and iron sets on both sites.
-- [x] **Loft/set-specific variant pricing**: both scrapers now resolve an exact price for `fairway_wood_7` (and `iron_set` on carlsgolfland) instead of the general product-family price. carlsgolfland reads the embedded `jsonConfig` price map on each product page; rockbottomgolf selects the matching loft dropdown option and reads the updated price. `config.VARIANT_TARGETS` controls which option/label is matched per site - adjust if you want a different loft or set makeup (e.g. "4-pw" instead of "5-pw").
-- [x] **Rate limiting**: both scrapers throttle requests via `rate_limiter.RateLimiter` (`config.RATE_LIMIT_SECONDS`, default 1.5s between requests) instead of hammering either site back-to-back.
-- [x] **Capped per-product variant lookups**: `config.MAX_VARIANT_LOOKUPS` (default 5) limits how many listing results get the expensive per-product-page variant resolution per run, so a test run doesn't sit there visiting every result on a Cloudflare-fronted site. Set to `None` for no cap once the pipeline needs full coverage.
-- [x] Hardened rockbottomgolf's per-product variant lookup against Selenium/Cloudflare flakiness ("window already closed" mid-run) with retries (3 attempts) and an automatic browser restart between attempts.
-- [x] **Added more brands**: `config.BRANDS` now includes Callaway, TaylorMade, Titleist, Ping, Cobra, and Mizuno - no scraper changes needed, confirmed working end-to-end (382 rows across all six on carlsgolfland.com in one run).
-- [x] **Men's-only filtering**: `config.MENS_ONLY_EXCLUDE_TERMS` (women/ladies/junior/girl/left-handed) is applied in both scrapers' listing parse, so those variants are excluded up front - no wasted product-page requests on results we don't want, no manual cleanup after.
-- [x] **Sale badges, discount %, and stock status**: both scrapers now report `on_sale`, `original_price`, `discount_pct`, and (carlsgolfland only) `stock_status`. carlsgolfland gets these for free on-listing (`on_sale`) plus one extra product-page request per sale item (bounded by `MAX_VARIANT_LOOKUPS`) for the rest, reading real MSRP/discount off the same `jsonConfig` blob already fetched for variant pricing. rockbottomgolf gets all three straight off the listing card's "Their Price $X - Save $Y (Z% Off)" block - zero extra requests, since that site's the Cloudflare-sensitive one.
-- [x] **Investigated alternate sites for the Cloudflare issue**: checked 2ndswing.com, golfdiscount.com, globalgolf.com, worldwidegolfshops.com, pgatoursuperstore.com (none returned a Cloudflare challenge). Findings below under "Alternate sites investigated."
+- [x] Both sites scrapeable: carlsgolfland.com via plain `requests` + BeautifulSoup (no Cloudflare); rockbottomgolf.com via Selenium (Cloudflare JS challenge, needs a visible browser window - headless gets flagged).
+- [x] Parameterized scrapers keyed off `config.py` (`BRANDS`, `CLUB_TYPES`) - name/price extraction verified for drivers, fairway woods, and iron sets on both sites.
+- [x] Loft/set-specific variant pricing (`fairway_wood_7`, `iron_set` on carlsgolfland) instead of family-level pricing, via `config.VARIANT_TARGETS`.
+- [x] Rate limiting (`config.RATE_LIMIT_SECONDS`) and a cap on per-product detail lookups (`config.MAX_VARIANT_LOOKUPS`) so a run doesn't hammer either site.
+- [x] rockbottomgolf's per-product lookup hardened against Selenium/Cloudflare flakiness with retries + automatic browser restart.
+- [x] More brands added (`config.BRANDS`: Callaway, TaylorMade, Titleist, Ping, Cobra, Mizuno) - no scraper changes needed.
+- [x] Men's-only filtering (`config.MENS_ONLY_EXCLUDE_TERMS`) applied in both scrapers' listing parse.
+- [x] Sale badges, discount %, and stock status (`on_sale`, `original_price`, `discount_pct`, `stock_status`) on both scrapers, with minimal extra requests.
+- [x] `run_timestamp` column added to `test_scrapers.py`'s CSV output for tracking runs over time.
+- [x] Investigated alternate sites for the Cloudflare issue - see "Priority" section above for what came out of it.
 
-## Known issue
-- [ ] **rockbottomgolf.com can throttle/lock out a session entirely**: after enough rapid automated Chrome sessions in a short window (e.g. repeated test runs during development), Cloudflare stopped resolving its JS challenge at all - even a real, visible, non-headless browser got stuck on "Just a moment..." indefinitely. `RATE_LIMIT_SECONDS` and `MAX_VARIANT_LOOKUPS` reduce how much load we put on it per run, but don't fully prevent this if you run the scraper repeatedly back-to-back while testing. If a run hangs on `_wait_for_results`, wait a while (get more than one Cloudflare cooldown period) before trying again rather than immediately retrying.
-- [ ] **rockbottomgolf's new sale/discount/men's-filter code hasn't had a live end-to-end re-run yet**: hit exactly the lockout above while trying to verify it this session. The sale-parsing regex (`SAVINGS_RE`) was verified offline against real captured markup from earlier in this session and matches correctly, and the men's filter uses the same logic already confirmed live on carlsgolfland - but re-run `rockbottomgolf_scraper.py` end-to-end once the cooldown clears to confirm on the live site.
-
-## Next up
-- [ ] Add pagination support end-to-end (rockbottomgolf scraper only grabs page 1 by default; wire up `max_pages` the way carlsgolfland's is).
-- [ ] Persist results over time (SQLite, like the Detroit Putter Co. retailer scraper) instead of overwriting a single CSV, so price history can be tracked. Include a "date pulled" column and a dedup key (see "Ideas" below) once this lands.
-
-## Alternate sites investigated
-Checked whether any of these hit a Cloudflare JS challenge like rockbottomgolf.com does (none did), and whether the listing HTML is actually scrapeable without a browser:
-
-- **2ndswing.com** - best candidate found. No Cloudflare, fully server-rendered (plain `requests` works), Magento-based (`.product-item` cards, same pattern as carlsgolfland). Note it's a **used/pre-owned marketplace**, not new-club MSRP - each listing is one physical club with its own condition (e.g. "Mint"), price, and "WAS" price baked right into the card (`.product-item-details` text like `Tour Edge | Hot Launch E523 | $91.99 | WAS | $137.99 | Mint | Dexterity: Right | Loft: 15° | Flex: Ladies | Shaft: ...`) - richer per-listing data than either current site, but a different product category (used vs. new) so it'd be a complementary addition, not a rockbottomgolf replacement.
-- **golfdiscount.com** - no Cloudflare, but it's a Vue single-page app - the HTML `requests` gets back is mostly an empty shell before client-side rendering, so it'd need Selenium/Playwright anyway despite dodging Cloudflare specifically. Deprioritized.
-- **globalgolf.com**, **worldwidegolfshops.com** - no Cloudflare challenge and real HTML returned, but page structure not yet inspected for a listing/price selector - worth a closer look before ruling in or out.
-- **pgatoursuperstore.com** - returned a 302 redirect with no body via plain `requests`; needs a follow-up check with redirects allowed before concluding anything.
-- **dickssportinggoods.com**, **golfgalaxy.com**, **austad.com** - returned 403/blocked ("Site Maintenance" title, likely a bot-detection page rather than literal maintenance) - not Cloudflare specifically, but blocked all the same. Not investigated further.
-
-## Ideas / further improvements
-- [ ] **Build a 2ndswing.com scraper**: given the findings above, this is the strongest next candidate for a third data source - no Cloudflare, server-rendered, and richer per-listing data (condition, dexterity, loft, flex, shaft, "WAS" price) than either current site. Would need its own `club_type` handling since it's used/pre-owned inventory (per-unit pricing, not a family/variant model) rather than a new-club catalog.
-- [ ] **Local parser tests using saved HTML fixtures**: save a few real response bodies (listing page + product page) to disk and write tests against them instead of hitting the live sites on every code change. Would let us iterate on selector/parsing logic without repeatedly tripping rockbottomgolf's Cloudflare throttle during development - directly mitigates the "Known issue" above.
-- [ ] **Dedup key for persisted history**: once results are stored over time (see SQLite item above), define a natural key - e.g. `(site, brand, club_type, variant, name, date_pulled)` - so re-running on the same day updates that row's price instead of inserting a duplicate, while still keeping one row per `date_pulled` for trend history.
-- [ ] **Price-drop / deal alerting**: now that `on_sale`/`original_price`/`discount_pct` are being captured, compare each new pull against the stored low or previous price for that club and flag anything that dropped further (start with a printed/logged summary, could grow into an email or Slack notification).
-- [ ] **Cross-site product matching**: normalize product names (strip site-specific suffixes like "- ON SALE", "2026", "Left Handed") so the same real-world club can be compared side-by-side between carlsgolfland and rockbottomgolf, instead of showing up as unrelated rows in the same CSV.
-- [ ] **Structured logging instead of print()**: swap the scrapers' `print()` calls for the standard `logging` module so a run can log to a file and be reviewed later, rather than only ever showing up in stdout.
-- [ ] **Simple CLI for one-off runs**: add `argparse` support to run a single brand/club_type/site combo on demand (e.g. `uv run python test_scrapers.py --site carlsgolfland --club-type driver`) instead of always running the full brand x club_type x site matrix or editing code to test one combination.
-- [ ] **Look for a lighter-weight path into rockbottomgolf.com**: check whether a sitemap.xml, RSS/product feed, or a specific page type sits outside the Cloudflare challenge - could reduce how much of the flow needs Selenium at all, even if product-page variant lookups still do.
-- [ ] **Shaft/flex option data**: 2ndswing.com's listings already expose this for free; carlsgolfland's `jsonConfig` blob (already fetched for variant/discount lookups) also contains shaft/flex attribute options per product and could be extracted the same way `variant_label` is now, if that level of detail becomes worth tracking.
+## Reference: sites checked, not investigated further
+- **dickssportinggoods.com**, **golfgalaxy.com**, **austad.com** - all returned 403/blocked ("Site Maintenance" title, likely bot detection rather than literal maintenance). Not Cloudflare specifically, but blocked all the same.
+- **golfdiscount.com** - no Cloudflare, but it's a Vue single-page app; the HTML `requests` gets back is an empty shell before client-side rendering, so it'd need Selenium/Playwright anyway. Deprioritized.
