@@ -49,21 +49,23 @@ RATE_LIMIT_SECONDS = 1.5
 # fairway_wood_7 and iron_set are usually sold as one product with a
 # loft/set-makeup picker rather than a distinct listing per variant, so a
 # plain name/price scrape of the search results returns the *family*
-# price, not the price for our specific target. These are the substrings
-# (case-insensitive) used to pick out the right variant per site - the two
-# sites model "which variant" differently (a dropdown option label on
-# carlsgolfland vs. a suffix baked into the product name on
-# rockbottomgolf), so the target string differs accordingly. Adjust these
-# if you want a different loft or set makeup (e.g. "4-pw" instead of
-# "5-pw").
+# price, not the price for our specific target. These are the values
+# used to pick out the right variant per site - each site models "which
+# variant" differently (a dropdown option label on carlsgolfland, a
+# SetComposition string + numeric loft on tgw.com), so the target shape
+# differs accordingly. Adjust these if you want a different loft or set
+# makeup (e.g. "4-pw" instead of "5-pw").
 VARIANT_TARGETS = {
     "carlsgolfland.com": {
         "fairway_wood_7": "7 wood",
         "iron_set": "5-pw",
     },
-    "rockbottomgolf.com": {
-        "fairway_wood_7": "#7 wood",
-        "iron_set": "7 iron set",
+    "tgw.com": {
+        # Unlike the other two sites, tgw.com doesn't label fairway wood
+        # variants by number ("7 wood") - only by loft degree. 21.0 is
+        # the standard loft for a 7 wood; see tgw_scraper._match_variant.
+        "fairway_wood_7": "21.0",
+        "iron_set": "5-pw",
     },
 }
 

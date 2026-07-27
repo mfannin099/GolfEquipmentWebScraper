@@ -8,7 +8,7 @@ from datetime import datetime
 import pandas as pd
 
 from carlsgolfland_scraper import CarlsGolflandScraper
-from rockbottomgolf_scraper import RockBottomGolfScraper
+from tgw_scraper import TgwScraper
 from config import BRANDS, CLUB_TYPES
 
 if __name__ == "__main__":
@@ -20,8 +20,8 @@ if __name__ == "__main__":
             print(f"\nScraping carlsgolfland.com: {brand} {club_type}...")
             all_results += CarlsGolflandScraper(brand, club_type, max_pages=1).run()
 
-            print(f"Scraping rockbottomgolf.com: {brand} {club_type}...")
-            all_results += RockBottomGolfScraper(brand, club_type).run()
+            print(f"Scraping tgw.com: {brand} {club_type}...")
+            all_results += TgwScraper(brand, club_type).run()
 
     df = pd.DataFrame(all_results)
     df.insert(0, "run_timestamp", run_timestamp)
