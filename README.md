@@ -23,7 +23,7 @@ Working scripts and early drafts, not part of the "stable" package:
 - **`test_script_rhoback.py`** — a rougher, one-off exploratory scrape of Rhoback.com's new-arrivals collection (not integrated with the class-based scrapers).
 
 ### `data/`
-Scraper output: `detroit_putters.csv`, `detroit_accessories.csv`, and `retailers.db`.
+Scraper output: `detroit_putters.csv`, `detroit_accessories.csv`, `retailers.db`, and `club_prices.db` (the club price tracker's append-only history; gitignored, since it grows with every run).
 
 ### `club_price_tracker/`
 A parameterized club price tracker covering tgw.com and carlsgolfland.com, driven by a shared config so new brands/club types don't require code changes:
@@ -31,12 +31,19 @@ A parameterized club price tracker covering tgw.com and carlsgolfland.com, drive
 - **`config.py`** — `BRANDS` (Callaway, TaylorMade, Titleist, Ping, Cobra, Mizuno) and `CLUB_TYPES` (drivers, 7-woods, iron sets). `build_query()` combines a brand + club type into a search string. Also holds `MENS_ONLY_EXCLUDE_TERMS` (filters out women's/junior/left-handed listings), `VARIANT_TARGETS` (which loft/set-makeup option to resolve an exact price for), `RATE_LIMIT_SECONDS`, and `MAX_VARIANT_LOOKUPS` (caps how many listings get an extra product-page request per run).
 - **`carlsgolfland_scraper.py`** — `CarlsGolflandScraper` scrapes name, price, sale status, discount %, and stock status via plain `requests` + BeautifulSoup. The site isn't behind Cloudflare, so no browser automation is needed; it follows the site's search redirect to its Searchspring-powered results page and paginates with `?p=N`. Products flagged "ON SALE" or needing a specific loft/set variant get one extra product-page request (capped by `MAX_VARIANT_LOOKUPS`) to read exact pricing/discount/stock off the page's embedded `jsonConfig` data.
 - **`tgw_scraper.py`** — `TgwScraper` scrapes the same fields via plain `requests` + BeautifulSoup, plus a `description` field. tgw.com is Cloudflare-fronted but not JS-challenge-protected, so no browser automation is needed. It searches via `/l/search?k=`, where the listing cards already carry both current and "was" price for free sale/discount detection. Every listing (capped by `MAX_VARIANT_LOOKUPS`) gets one product-page request to read the page's embedded `productJson` blob, which resolves the exact loft/set variant (`ClubLoft` degrees for fairway woods, `SetComposition` for iron sets), stock status, and the product description.
+- **`database.py`** — SQLite persistence for price history. A single `SCHEMA` list is the source of truth: it generates the `CREATE TABLE` statement, the `INSERT`, and the Python row validator, so a column can't be added to one and forgotten in the others. Validation rejects unknown columns (catching a scraper quietly renaming a field), missing required values, uncoercible types, and out-of-range values, normalizing scraper types and CSV strings alike. Appends are idempotent — a unique index over `(site, brand, club_type, name, variant, run_timestamp)` plus `INSERT OR IGNORE` means a rerun can't pile up duplicates. Also exposes `latest_prices()`, which resolves each listing's most recent price in SQL rather than scanning all history in Python.
+- **`price_alerts.py`** — compares a run against each listing's last recorded price (via `latest_prices()`) and logs any drops. Logger-only for now.
 - **`logging_config.py`** — `get_logger()` sets up console logging always, plus a timestamped file under `logs/` (gitignored) when called with `write_to_file=True`.
-- **`test_scrapers.py`** — runs every brand × club type combination against both sites and saves results to `club_prices.csv`. Set its `WRITE_LOGS_TO_FILE` flag to `True` to also write the run's log lines to `logs/`.
+- **`test_scrapers.py`** — runs every brand × club type combination against both sites and appends the results to `data/club_prices.db`. Every row carries the run's `run_timestamp` and an `extracted_date`, so the table accumulates queryable price history instead of being overwritten. Invalid rows are logged and skipped rather than aborting the run. Set its `WRITE_LOGS_TO_FILE` flag to `True` to also write the run's log lines to `logs/`.
+- **`migrate_csv_to_db.py`** — one-off backfill of the legacy `club_prices.csv` into SQLite. Strict (any validation failure writes nothing), but safe to rerun, since the dedup index ignores already-imported rows.
+
+Each result row carries: `site`, `brand`, `club_type`, `name`, `variant`, `sku`, `price`, `original_price`, `discount_pct`, `on_sale`, `stock_status`, `rating`, `review_count`, `image_url`, `description`, and `link`. `sku` comes free off both sites' listing pages (tgw.com's `pid` attribute, carlsgolfland's `data-bv-product-id`, which doubles as the MPN) and is the best available handle for matching the same club across sites. `rating`/`review_count` are tgw.com-only — carlsgolfland renders its star ratings client-side via Bazaarvoice, so they never appear in the HTML a plain request gets back.
 
 ## Status
 
-This is early-stage/exploratory work — data collection is functional for Detroit Putter Co. (putters, accessories, retailers) and for men's driver/fairway-wood/iron-set prices (Callaway, TaylorMade, Titleist, Ping, Cobra, Mizuno) on tgw.com/carlsgolfland.com, including sale/discount/stock status and (tgw.com only) product descriptions. There's no unified pipeline yet tying scraping → cleaning → storage together (results are still per-run CSVs, not queryable history), and the Rhoback script is just a scratch experiment (see `TODO.md` for open items).
+This is early-stage/exploratory work — data collection is functional for Detroit Putter Co. (putters, accessories, retailers) and for men's driver/fairway-wood/iron-set prices (Callaway, TaylorMade, Titleist, Ping, Cobra, Mizuno) on tgw.com/carlsgolfland.com, including SKU, sale/discount/stock status, product descriptions, images, and (tgw.com only) ratings.
+
+The club price tracker now runs scraping → validation → storage end to end: every run appends validated rows to `data/club_prices.db`, so price history is queryable and price-drop detection works off real history. The Detroit Putter Co. scrapers still write standalone CSVs and aren't wired into that pipeline, and the Rhoback script is just a scratch experiment (see `TODO.md` for open items).
 
 ## Setup
 
@@ -57,6 +64,16 @@ uv run python scratch/test_script_detroit_putter.py
 # Scrape and clean retailer locations into data/retailers.db
 uv run python scratch/detroit_putters_retailers.py
 
-# Run the club price tracker against both sites for every configured brand/club type
+# Run the club price tracker against both sites for every configured
+# brand/club type, appending the results to data/club_prices.db
 cd club_price_tracker && uv run python test_scrapers.py
+
+# One-off: backfill legacy club_prices.csv history into the database
+cd club_price_tracker && uv run python migrate_csv_to_db.py
+```
+
+Querying the history:
+
+```bash
+sqlite3 data/club_prices.db "SELECT extracted_date, site, name, price FROM club_prices WHERE on_sale = 1 ORDER BY discount_pct DESC LIMIT 10"
 ```

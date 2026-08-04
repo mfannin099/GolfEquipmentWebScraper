@@ -8,10 +8,15 @@
 ## Backlog
 
 ### Data persistence & tracking
-- [ ] Persist results over time in SQLite (like the Detroit Putter Co. retailer scraper) instead of overwriting a single CSV, so price history is queryable. `run_timestamp` (in `test_scrapers.py`) is a step toward this but isn't real history yet.
-- [ ] Define a dedup key once persisted - e.g. `(site, brand, club_type, variant, name, run_timestamp)` - so reruns don't just pile up duplicate rows.
-- [ ] Price-drop/deal alerting: once history exists, compare each pull against the stored low/previous price and flag drops (start with a printed/logged summary; could grow into email/Slack).
-- [ ] Cross-site product matching: normalize names (strip suffixes like "- ON SALE", "2026", "Left Handed") so the same real-world club can be compared side-by-side acros33s sites instead of showing up as unrelated rows.
+- [x] Persist results over time in SQLite instead of overwriting a single CSV, so price history is queryable. `club_price_tracker/database.py` — one `SCHEMA` spec generates the DDL, the INSERT, and the row validator; `test_scrapers.py` appends to `data/club_prices.db` with a `run_timestamp` and `extracted_date` per row.
+- [x] Define a dedup key once persisted - `(site, brand, club_type, name, variant, run_timestamp)`, enforced as a UNIQUE index + `INSERT OR IGNORE` so reruns are idempotent rather than piling up duplicates.
+- [x] Price-drop/deal alerting: `price_alerts.log_price_drops()` compares each pull against that listing's last recorded price (resolved in SQL by `database.latest_prices()`) and logs drops. Still logger-only — email/Slack would be the next step.
+- [ ] Cross-site product matching: normalize names (strip suffixes like "- ON SALE", "2026", "Left Handed") so the same real-world club can be compared side-by-side across sites instead of showing up as unrelated rows. The `sku` column is now populated on both sites and carlsgolfland's doubles as the MPN, so start by checking how far SKU/MPN matching gets before falling back to name normalization.
+- [ ] Now that history has more than one run per product, track a rolling low/high per listing (not just the previous price) so "cheapest it's ever been" is answerable.
+
+### Data coverage
+- [ ] `MAX_VARIANT_LOOKUPS = 5` caps product-page visits per brand/club-type combo, so `description`, `stock_status` and true discount info only land on the first few results of each. Consider raising it (or making it a CLI flag) for real collection runs as opposed to test runs.
+- [ ] Ratings are tgw.com-only — carlsgolfland renders them client-side via Bazaarvoice. Its `data-bv-product-id` is the Bazaarvoice product ID, so their public API may be able to supply rating/review count without a browser.
 
 ### Code quality & tooling
 - [ ] Add pagination support to rockbottomgolf's scraper (only grabs page 1 today; carlsgolfland's `max_pages` pattern already handles this).

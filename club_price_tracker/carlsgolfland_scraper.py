@@ -16,6 +16,13 @@ current one - so true discount/MSRP info also requires a product-page
 visit; it's read off the same jsonConfig blob (oldPrice vs finalPrice)
 already being fetched for variant resolution, plus a stock-status
 element on the page. See _fetch_product_details.
+
+The listing page does carry the SKU for free, on each card's
+`data-bv-product-id` (a Bazaarvoice hook), along with the product image.
+That SKU doubles as the product's MPN in the page's JSON-LD, which makes
+it the best available handle for matching a club across sites. The
+neighbouring star rating is *not* usable - Bazaarvoice renders it in the
+browser, so it never appears in the HTML a plain request gets back.
 """
 
 import json
@@ -39,6 +46,53 @@ from rate_limiter import RateLimiter
 BASE_URL = "https://www.carlsgolfland.com"
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; ClubPriceTracker/0.1)"}
 SITE = "carlsgolfland.com"
+
+# schema.org availability URLs -> the same wording tgw.com's scraper
+# reports, so stock_status means one thing across sites.
+AVAILABILITY_LABELS = {
+    "instock": "In Stock",
+    "outofstock": "Out of Stock",
+    "backorder": "Back Order",
+    "preorder": "Pre-Order",
+    "limitedavailability": "Limited Availability",
+    "discontinued": "Discontinued",
+    "soldout": "Out of Stock",
+}
+
+
+def _product_availability(soup: BeautifulSoup) -> str | None:
+    """Reads stock status out of the page's JSON-LD Product block.
+
+    Backs up the `.stock` element, which is present on some product pages
+    and empty on others.
+    """
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or "")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(data, dict) or data.get("@type") != "Product":
+            continue
+        offers = data.get("offers") or []
+        if isinstance(offers, dict):
+            offers = [offers]
+        for offer in offers:
+            availability = offer.get("availability")
+            if availability:
+                key = availability.rsplit("/", 1)[-1].lower()
+                return AVAILABILITY_LABELS.get(key, availability.rsplit("/", 1)[-1])
+    return None
+
+
+def _clean_description(soup: BeautifulSoup) -> str | None:
+    """The product page's real description tab. Preferred over the JSON-LD
+    `description`, which is just SEO boilerplate ("Shop Now and Save Big
+    on ... at Carl's Golfland").
+    """
+    el = soup.select_one(".product.attribute.description")
+    if not el:
+        return None
+    return re.sub(r"\s+", " ", el.get_text(" ", strip=True)) or None
 
 
 def _extract_json_config(html: str) -> dict | None:
@@ -103,16 +157,26 @@ class CarlsGolflandScraper:
             price_el = item.select_one("[data-price-amount]")
             price = float(price_el["data-price-amount"]) if price_el else None
 
+            sku_el = item.select_one("[data-bv-product-id]")
+            image_el = item.select_one("img.product-image-photo")
+
             self.results.append({
                 "brand": self.brand,
                 "club_type": self.club_type,
                 "name": name,
                 "variant": None,
+                "sku": sku_el.get("data-bv-product-id") if sku_el else None,
                 "price": price,
                 "original_price": None,
                 "discount_pct": None,
                 "on_sale": "on sale" in name_lower,
                 "stock_status": None,
+                # Bazaarvoice renders ratings client-side, so there's
+                # nothing to read here - see the module docstring.
+                "rating": None,
+                "review_count": None,
+                "image_url": image_el.get("src") if image_el else None,
+                "description": None,
                 "link": name_el.get("href"),
                 "site": SITE,
             })
@@ -136,14 +200,17 @@ class CarlsGolflandScraper:
             "original_price": None,
             "discount_pct": None,
             "stock_status": None,
+            "description": None,
         }
 
         resp = self._get(product_url)
         soup = BeautifulSoup(resp.text, "html.parser")
 
+        details["description"] = _clean_description(soup)
+
         stock_el = soup.select_one(".product-info-stock-sku .stock")
-        if stock_el:
-            details["stock_status"] = stock_el.get_text(strip=True)
+        stock_text = stock_el.get_text(strip=True) if stock_el else None
+        details["stock_status"] = stock_text or _product_availability(soup)
 
         cfg = _extract_json_config(resp.text)
         if not cfg:
@@ -210,6 +277,7 @@ class CarlsGolflandScraper:
             result["original_price"] = details["original_price"]
             result["discount_pct"] = details["discount_pct"]
             result["stock_status"] = details["stock_status"]
+            result["description"] = details["description"]
 
         return self.results
 
@@ -221,6 +289,6 @@ if __name__ == "__main__":
             results = scraper.run()
             print(f"\n=== {brand} {club_type} ({len(results)} results) ===")
             for r in results:
-                print(f"  {r['name']} [{r['variant']}]: {r['price']} "
+                print(f"  {r['name']} [{r['variant']}] sku={r['sku']}: {r['price']} "
                       f"(sale={r['on_sale']}, was={r['original_price']}, "
                       f"-{r['discount_pct']}%, stock={r['stock_status']})")

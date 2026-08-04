@@ -22,6 +22,12 @@ variants by number, only by degree). The same productJson blob also
 carries a rich HTML `Description` field, pulled down as `description`
 on every result (not just sale/variant ones) since it's the same
 request either way.
+
+Listing tiles also carry three fields for free, no product-page visit
+needed: the SKU (the `pid` attribute on the card's anchor), the product
+image, and - on roughly half of listings - a star rating and review
+count. The product page's `ReviewData` block carries the same rating at
+full precision, so it wins when a product page is fetched anyway.
 """
 
 import json
@@ -47,6 +53,10 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; ClubPriceTracker/0.1)"}
 SITE = "tgw.com"
 
 NON_CLUB_TERMS = ["headcover", "shaft", "grip", " bag", "glove", "towel"]
+
+# e.g. "4.7 out of 5 star rating (199 reviews )" - tiles without any
+# reviews yet omit the element entirely rather than showing a zero.
+RATING_RE = re.compile(r"([\d.]+)\s*out of\s*5.*?\(\s*([\d,]+)", re.S)
 
 
 def _extract_product_json(html: str) -> dict | None:
@@ -81,6 +91,28 @@ def _parse_money(text: str | None) -> float | None:
         return float(text.replace("$", "").replace(",", "").strip())
     except ValueError:
         return None
+
+
+def _parse_rating(text: str | None) -> tuple[float | None, int | None]:
+    if not text:
+        return None, None
+    match = RATING_RE.search(text)
+    if not match:
+        return None, None
+    return float(match.group(1)), int(match.group(2).replace(",", ""))
+
+
+def _tile_image_url(img) -> str | None:
+    """Everything past the first couple of tiles is lazy-loaded: `src` holds
+    a placeholder graphic and the real URL sits in `data-src`. Reading only
+    `src` would leave images on ~95% of a page's results.
+    """
+    if img is None:
+        return None
+    src = img.get("data-src") or img.get("src")
+    if not src or "placeholder" in src:
+        return None
+    return urljoin(BASE_URL, src)
 
 
 class TgwScraper:
@@ -131,16 +163,23 @@ class TgwScraper:
             price = _parse_money(tile.select_one(".regular-price").get_text() if tile.select_one(".regular-price") else None)
             was_price = _parse_money(tile.select_one(".was-price .price").get_text() if tile.select_one(".was-price .price") else None)
 
+            rating_el = tile.select_one(".rating-count")
+            rating, review_count = _parse_rating(rating_el.get_text(" ", strip=True) if rating_el else None)
+
             self.results.append({
                 "brand": self.brand,
                 "club_type": self.club_type,
                 "name": name,
                 "variant": None,
+                "sku": link_el.get("pid") or None,
                 "price": price,
                 "original_price": was_price,
                 "discount_pct": self._discount_pct(was_price, price),
                 "on_sale": was_price is not None,
                 "stock_status": None,
+                "rating": rating,
+                "review_count": review_count,
+                "image_url": _tile_image_url(tile.select_one(".product-image img")),
                 "description": None,
                 "link": urljoin(BASE_URL, link_el["href"]),
                 "site": SITE,
@@ -182,14 +221,17 @@ class TgwScraper:
         return "In Stock"
 
     def _fetch_product_details(self, product_url: str) -> dict:
-        """Opens a product page and pulls the description (every call) plus,
-        when self.variant_target is set, the exact variant's price, original
-        price/discount, and stock status.
+        """Opens a product page and pulls the description and review data
+        (every call) plus, when self.variant_target is set, the exact
+        variant's price, original price/discount, SKU, and stock status.
         """
         details = {
             "description": None,
+            "rating": None,
+            "review_count": None,
             "variant_price": None,
             "variant_label": None,
+            "variant_sku": None,
             "original_price": None,
             "discount_pct": None,
             "stock_status": None,
@@ -201,6 +243,14 @@ class TgwScraper:
             return details
 
         details["description"] = _clean_description(obj.get("Description"))
+
+        # Full-precision rating/review count, versus the tile's rounded
+        # one-decimal display value.
+        review_data = obj.get("ReviewData") or {}
+        total_reviews = review_data.get("TotalReviews")
+        if total_reviews:
+            details["rating"] = round(float(review_data["AverageRating"]), 2)
+            details["review_count"] = int(total_reviews)
 
         variants = obj.get("Variants") or []
         match = self._match_variant(variants)
@@ -218,6 +268,9 @@ class TgwScraper:
                 match.get("SetComposition") if self.club_type == "iron_set"
                 else f'{match.get("ClubLoft")}°'
             )
+            # Variant-level SKU, more specific than the tile's product-level
+            # one (which points at the default variant).
+            details["variant_sku"] = match.get("Sku")
             details["original_price"] = original
             details["discount_pct"] = self._discount_pct(original, price)
             details["stock_status"] = self._variant_stock_status(match)
@@ -239,12 +292,17 @@ class TgwScraper:
         for result in targets:
             details = self._fetch_product_details(result["link"])
             result["description"] = details["description"]
+            if details["review_count"] is not None:
+                result["rating"] = details["rating"]
+                result["review_count"] = details["review_count"]
             if details["variant_price"] is not None:
                 result["price"] = details["variant_price"]
                 result["variant"] = details["variant_label"]
                 result["original_price"] = details["original_price"]
                 result["discount_pct"] = details["discount_pct"]
                 result["on_sale"] = details["discount_pct"] is not None
+                if details["variant_sku"]:
+                    result["sku"] = details["variant_sku"]
             if details["stock_status"] is not None:
                 result["stock_status"] = details["stock_status"]
 
@@ -258,6 +316,7 @@ if __name__ == "__main__":
             results = scraper.run()
             print(f"\n=== {brand} {club_type} ({len(results)} results) ===")
             for r in results:
-                print(f"  {r['name']} [{r['variant']}]: {r['price']} "
+                print(f"  {r['name']} [{r['variant']}] sku={r['sku']}: {r['price']} "
                       f"(sale={r['on_sale']}, was={r['original_price']}, "
-                      f"-{r['discount_pct']}%, stock={r['stock_status']})")
+                      f"-{r['discount_pct']}%, stock={r['stock_status']}, "
+                      f"rating={r['rating']} of {r['review_count']} reviews)")
