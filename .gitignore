@@ -8,8 +8,8 @@ __pycache__/
 
 .DS_Store
 
-# Legacy price history, superseded by data/club_prices.db
-# (migrate_csv_to_db.py backfills it into the DB)
+# Legacy price history, already migrated into data/club_prices.db
+# and no longer written to. Kept locally as a raw backup.
 club_price_tracker/club_prices.csv
 
 # Price history, appended to by test_scrapers.py on every run

@@ -7,6 +7,12 @@ import pandas as pd
 import sqlite3
 import os
 import re
+from pathlib import Path
+
+# Resolved from this file, not the working directory - the relative
+# "../data" this used to use pointed at scratch/data once the script moved
+# down into scratch/detroit_putter_co/.
+DB_PATH = Path(__file__).resolve().parents[2] / "data" / "retailers.db"
 
 pd.set_option("display.max_columns", None)
 pd.set_option("display.width", None)
@@ -63,7 +69,7 @@ class RetailerScraper:
             self.parse_retailers()
             self.print_retailers()
             df = self.create_df()
-            self.save_to_db("../data/retailers.db")
+            self.save_to_db(DB_PATH)
         finally:
             self.driver.quit()
 
@@ -102,9 +108,9 @@ class dataCleaning:
         return self.df
 
 if __name__ == "__main__":
-    db_path = "../data/retailers.db"
+    db_path = DB_PATH
 
-    if os.path.exists(db_path):
+    if db_path.exists():
         print("DB already exists, loading from file...")
 
         # Load the retailer table from SQLite and clean it in memory.

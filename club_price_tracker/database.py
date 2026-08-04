@@ -15,8 +15,6 @@ listing twice, can't pile up duplicate rows. That replaces the pandas
 drop_duplicates() the CSV pipeline needed.
 """
 
-from __future__ import annotations
-
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass

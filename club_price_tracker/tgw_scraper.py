@@ -30,67 +30,31 @@ count. The product page's `ReviewData` block carries the same rating at
 full precision, so it wins when a product page is fetched anyway.
 """
 
-import json
 import re
 from urllib.parse import quote, urljoin
 
-import requests
 from bs4 import BeautifulSoup
 
-from config import (
-    BRANDS,
-    CLUB_TYPES,
-    VARIANT_TARGETS,
-    RATE_LIMIT_SECONDS,
-    MAX_VARIANT_LOOKUPS,
-    MENS_ONLY_EXCLUDE_TERMS,
-    build_query,
+from config import BRANDS, CLUB_TYPES, MAX_VARIANT_LOOKUPS
+from scraper_base import (
+    BaseScraper,
+    clean_text,
+    discount_pct,
+    extract_json_blob,
+    parse_money,
 )
-from rate_limiter import RateLimiter
 
 BASE_URL = "https://www.tgw.com"
-HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; ClubPriceTracker/0.1)"}
-SITE = "tgw.com"
+PRODUCT_JSON_MARKER = "var productJson="
 
+# The /l/search endpoint mixes accessories in with actual clubs for queries
+# like "TaylorMade 7 wood", so these get filtered out on top of the shared
+# brand/men's-only filter.
 NON_CLUB_TERMS = ["headcover", "shaft", "grip", " bag", "glove", "towel"]
 
 # e.g. "4.7 out of 5 star rating (199 reviews )" - tiles without any
 # reviews yet omit the element entirely rather than showing a zero.
 RATING_RE = re.compile(r"([\d.]+)\s*out of\s*5.*?\(\s*([\d,]+)", re.S)
-
-
-def _extract_product_json(html: str) -> dict | None:
-    marker = "var productJson="
-    marker_idx = html.find(marker)
-    if marker_idx == -1:
-        return None
-
-    start = html.index("{", marker_idx)
-    depth = 0
-    for i in range(start, len(html)):
-        if html[i] == "{":
-            depth += 1
-        elif html[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return json.loads(html[start:i + 1])
-    return None
-
-
-def _clean_description(html: str | None) -> str | None:
-    if not html:
-        return None
-    text = BeautifulSoup(html, "html.parser").get_text(" ", strip=True)
-    return re.sub(r"\s+", " ", text) or None
-
-
-def _parse_money(text: str | None) -> float | None:
-    if not text:
-        return None
-    try:
-        return float(text.replace("$", "").replace(",", "").strip())
-    except ValueError:
-        return None
 
 
 def _parse_rating(text: str | None) -> tuple[float | None, int | None]:
@@ -115,29 +79,17 @@ def _tile_image_url(img) -> str | None:
     return urljoin(BASE_URL, src)
 
 
-class TgwScraper:
-    def __init__(self, brand: str, club_type: str):
-        self.brand = brand
-        self.club_type = club_type
-        self.query = build_query(brand, club_type)
-        self.results = []
-        self.rate_limiter = RateLimiter(RATE_LIMIT_SECONDS)
-        self.variant_target = VARIANT_TARGETS.get(SITE, {}).get(club_type)
-
-    def _get(self, url: str) -> requests.Response:
-        self.rate_limiter.wait()
-        resp = requests.get(url, headers=HEADERS, timeout=15)
-        resp.raise_for_status()
-        return resp
+class TgwScraper(BaseScraper):
+    SITE = "tgw.com"
 
     def _search_url(self) -> str:
         return f"{BASE_URL}/l/search?k={quote(self.query)}"
 
-    @staticmethod
-    def _discount_pct(old_price, final_price):
-        if not old_price or not final_price or old_price <= final_price:
-            return None
-        return round((old_price - final_price) / old_price * 100, 1)
+    def _is_wanted(self, name: str) -> bool:
+        if not super()._is_wanted(name):
+            return False
+        name_lower = name.lower()
+        return not any(term in name_lower for term in NON_CLUB_TERMS)
 
     def _parse_page(self, html: str):
         soup = BeautifulSoup(html, "html.parser")
@@ -151,17 +103,13 @@ class TgwScraper:
             if not name_el or not link_el:
                 continue
             name = name_el.get_text(strip=True)
-            name_lower = name.lower()
-
-            if self.brand.lower() not in name_lower:
-                continue
-            if any(term in name_lower for term in MENS_ONLY_EXCLUDE_TERMS):
-                continue
-            if any(term in name_lower for term in NON_CLUB_TERMS):
+            if not self._is_wanted(name):
                 continue
 
-            price = _parse_money(tile.select_one(".regular-price").get_text() if tile.select_one(".regular-price") else None)
-            was_price = _parse_money(tile.select_one(".was-price .price").get_text() if tile.select_one(".was-price .price") else None)
+            price_el = tile.select_one(".regular-price")
+            was_price_el = tile.select_one(".was-price .price")
+            price = parse_money(price_el.get_text() if price_el else None)
+            was_price = parse_money(was_price_el.get_text() if was_price_el else None)
 
             rating_el = tile.select_one(".rating-count")
             rating, review_count = _parse_rating(rating_el.get_text(" ", strip=True) if rating_el else None)
@@ -174,7 +122,7 @@ class TgwScraper:
                 "sku": link_el.get("pid") or None,
                 "price": price,
                 "original_price": was_price,
-                "discount_pct": self._discount_pct(was_price, price),
+                "discount_pct": discount_pct(was_price, price),
                 "on_sale": was_price is not None,
                 "stock_status": None,
                 "rating": rating,
@@ -182,7 +130,7 @@ class TgwScraper:
                 "image_url": _tile_image_url(tile.select_one(".product-image img")),
                 "description": None,
                 "link": urljoin(BASE_URL, link_el["href"]),
-                "site": SITE,
+                "site": self.SITE,
             })
         return True
 
@@ -210,7 +158,7 @@ class TgwScraper:
 
         if not candidates:
             return None
-        return min(candidates, key=lambda v: _parse_money(v.get("Price")) or float("inf"))
+        return min(candidates, key=lambda v: parse_money(v.get("Price")) or float("inf"))
 
     @staticmethod
     def _variant_stock_status(variant: dict) -> str | None:
@@ -238,11 +186,11 @@ class TgwScraper:
         }
 
         resp = self._get(product_url)
-        obj = _extract_product_json(resp.text)
+        obj = extract_json_blob(resp.text, PRODUCT_JSON_MARKER)
         if not obj:
             return details
 
-        details["description"] = _clean_description(obj.get("Description"))
+        details["description"] = clean_text(obj.get("Description"))
 
         # Full-precision rating/review count, versus the tile's rounded
         # one-decimal display value.
@@ -256,7 +204,7 @@ class TgwScraper:
         match = self._match_variant(variants)
 
         if match:
-            price = _parse_money(match.get("Price"))
+            price = parse_money(match.get("Price"))
             original = match.get("OriginalPrice") or obj.get("OriginalPrice")
             # OriginalPrice is sometimes populated equal to the current
             # price when there's no real "was" price - only report it
@@ -272,7 +220,7 @@ class TgwScraper:
             # one (which points at the default variant).
             details["variant_sku"] = match.get("Sku")
             details["original_price"] = original
-            details["discount_pct"] = self._discount_pct(original, price)
+            details["discount_pct"] = discount_pct(original, price)
             details["stock_status"] = self._variant_stock_status(match)
         elif variants:
             details["stock_status"] = self._variant_stock_status(variants[0])

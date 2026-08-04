@@ -27,10 +27,11 @@ WRITE_LOGS_TO_FILE = False
 logger = get_logger(__name__, write_to_file=WRITE_LOGS_TO_FILE)
 
 # Each entry is called as scraper(brand, club_type).run(). Add a site here
-# and it joins the matrix - nothing below needs touching.
+# and it joins the matrix - nothing below needs touching. Site names come
+# off the scraper classes so they can't drift from what lands in the DB.
 SITE_SCRAPERS = (
-    ("carlsgolfland.com", partial(CarlsGolflandScraper, max_pages=1)),
-    ("tgw.com", TgwScraper),
+    (CarlsGolflandScraper.SITE, partial(CarlsGolflandScraper, max_pages=1)),
+    (TgwScraper.SITE, TgwScraper),
 )
 
 

@@ -26,26 +26,15 @@ browser, so it never appears in the HTML a plain request gets back.
 """
 
 import json
-import re
 from urllib.parse import quote
 
-import requests
 from bs4 import BeautifulSoup
 
-from config import (
-    BRANDS,
-    CLUB_TYPES,
-    VARIANT_TARGETS,
-    RATE_LIMIT_SECONDS,
-    MAX_VARIANT_LOOKUPS,
-    MENS_ONLY_EXCLUDE_TERMS,
-    build_query,
-)
-from rate_limiter import RateLimiter
+from config import BRANDS, CLUB_TYPES, MAX_VARIANT_LOOKUPS
+from scraper_base import BaseScraper, clean_text, discount_pct, extract_json_blob
 
 BASE_URL = "https://www.carlsgolfland.com"
-HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; ClubPriceTracker/0.1)"}
-SITE = "carlsgolfland.com"
+JSON_CONFIG_MARKER = '"jsonConfig"'
 
 # schema.org availability URLs -> the same wording tgw.com's scraper
 # reports, so stock_status means one thing across sites.
@@ -84,50 +73,20 @@ def _product_availability(soup: BeautifulSoup) -> str | None:
     return None
 
 
-def _clean_description(soup: BeautifulSoup) -> str | None:
+def _product_description(soup: BeautifulSoup) -> str | None:
     """The product page's real description tab. Preferred over the JSON-LD
     `description`, which is just SEO boilerplate ("Shop Now and Save Big
     on ... at Carl's Golfland").
     """
-    el = soup.select_one(".product.attribute.description")
-    if not el:
-        return None
-    return re.sub(r"\s+", " ", el.get_text(" ", strip=True)) or None
+    return clean_text(soup.select_one(".product.attribute.description"))
 
 
-def _extract_json_config(html: str) -> dict | None:
-    marker = '"jsonConfig"'
-    marker_idx = html.find(marker)
-    if marker_idx == -1:
-        return None
+class CarlsGolflandScraper(BaseScraper):
+    SITE = "carlsgolfland.com"
 
-    start = html.index("{", marker_idx)
-    depth = 0
-    for i in range(start, len(html)):
-        if html[i] == "{":
-            depth += 1
-        elif html[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return json.loads(html[start:i + 1])
-    return None
-
-
-class CarlsGolflandScraper:
     def __init__(self, brand: str, club_type: str, max_pages: int = 3):
-        self.brand = brand
-        self.club_type = club_type
-        self.query = build_query(brand, club_type)
+        super().__init__(brand, club_type)
         self.max_pages = max_pages
-        self.results = []
-        self.rate_limiter = RateLimiter(RATE_LIMIT_SECONDS)
-        self.variant_target = VARIANT_TARGETS.get(SITE, {}).get(club_type)
-
-    def _get(self, url: str) -> requests.Response:
-        self.rate_limiter.wait()
-        resp = requests.get(url, headers=HEADERS, timeout=15)
-        resp.raise_for_status()
-        return resp
 
     def _page_url(self, page: int) -> str:
         url = f"{BASE_URL}/search/{quote(self.query)}"
@@ -144,14 +103,7 @@ class CarlsGolflandScraper:
             if not name_el:
                 continue
             name = name_el.get_text(strip=True)
-
-            # Only keep results that actually mention the brand - search
-            # can return loosely related products too.
-            name_lower = name.lower()
-            if self.brand.lower() not in name_lower:
-                continue
-
-            if any(term in name_lower for term in MENS_ONLY_EXCLUDE_TERMS):
+            if not self._is_wanted(name):
                 continue
 
             price_el = item.select_one("[data-price-amount]")
@@ -169,7 +121,7 @@ class CarlsGolflandScraper:
                 "price": price,
                 "original_price": None,
                 "discount_pct": None,
-                "on_sale": "on sale" in name_lower,
+                "on_sale": "on sale" in name.lower(),
                 "stock_status": None,
                 # Bazaarvoice renders ratings client-side, so there's
                 # nothing to read here - see the module docstring.
@@ -178,15 +130,9 @@ class CarlsGolflandScraper:
                 "image_url": image_el.get("src") if image_el else None,
                 "description": None,
                 "link": name_el.get("href"),
-                "site": SITE,
+                "site": self.SITE,
             })
         return True
-
-    @staticmethod
-    def _discount_pct(old_price, final_price):
-        if not old_price or old_price <= final_price:
-            return None
-        return round((old_price - final_price) / old_price * 100, 1)
 
     def _fetch_product_details(self, product_url: str) -> dict:
         """Open a product page and pull everything the listing page can't
@@ -206,13 +152,13 @@ class CarlsGolflandScraper:
         resp = self._get(product_url)
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        details["description"] = _clean_description(soup)
+        details["description"] = _product_description(soup)
 
         stock_el = soup.select_one(".product-info-stock-sku .stock")
         stock_text = stock_el.get_text(strip=True) if stock_el else None
         details["stock_status"] = stock_text or _product_availability(soup)
 
-        cfg = _extract_json_config(resp.text)
+        cfg = extract_json_blob(resp.text, JSON_CONFIG_MARKER)
         if not cfg:
             return details
 
@@ -248,7 +194,7 @@ class CarlsGolflandScraper:
             final_price = price_info["finalPrice"]["amount"]
             old_price = price_info.get("oldPrice", {}).get("amount")
             details["original_price"] = old_price
-            details["discount_pct"] = self._discount_pct(old_price, final_price)
+            details["discount_pct"] = discount_pct(old_price, final_price)
 
         return details
 
