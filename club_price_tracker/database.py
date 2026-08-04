@@ -1,7 +1,7 @@
 """SQLite persistence for club price history.
 
-Replaces the append-only club_prices.csv: same "every run appends its full
-result set" model, but queryable and with real validation at the boundary.
+Every run appends its full result set, so the table accumulates price
+history rather than being overwritten.
 
 The SCHEMA list below is the single source of truth - it generates the
 CREATE TABLE statement, the INSERT statement, and the Python row
@@ -10,9 +10,8 @@ others.
 
 Appends are idempotent: a UNIQUE index over the dedup key
 (site, brand, club_type, name, variant, run_timestamp) plus INSERT OR
-IGNORE means re-running a migration, or a scraper handing back the same
-listing twice, can't pile up duplicate rows. That replaces the pandas
-drop_duplicates() the CSV pipeline needed.
+IGNORE means a rerun, or a scraper handing back the same listing twice,
+can't pile up duplicate rows - no dedup pass needed on the way in.
 """
 
 import sqlite3
@@ -33,14 +32,15 @@ class SchemaError(ValueError):
 # --------------------------------------------------------------------------
 # Value coercion
 #
-# Input rows come from two places with different conventions: scrapers hand
-# back real Python types (None/float/bool), the CSV migration hands back
-# strings ("", "False", "24.99"). Each coercer normalizes both, and raises
-# ValueError with a readable message when it can't.
+# Scrapers hand back real Python types (None/float/bool), but a value
+# lifted straight out of page markup arrives as a string ("False",
+# "24.99"). Each coercer normalizes both, and raises ValueError with a
+# readable message when it can't.
 # --------------------------------------------------------------------------
 
-# Strings that mean "no value" once a row has round-tripped through CSV or
-# pandas. A real description/name is never one of these.
+# Strings that mean "no value" rather than being real content - what an
+# empty cell or a missing attribute tends to stringify to. A real
+# description/name is never one of these.
 _NULLISH = {"", "none", "nan", "null", "na", "n/a"}
 
 _TRUTHY = {"true", "1", "yes", "y", "t"}

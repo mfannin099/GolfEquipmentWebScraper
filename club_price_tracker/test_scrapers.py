@@ -62,9 +62,9 @@ if __name__ == "__main__":
     for row in scraped:
         row["run_timestamp"] = run_timestamp
 
-    # Unlike migrate_csv_to_db.py, a bad row here is logged and dropped
-    # rather than aborting: a malformed listing shouldn't cost the run
-    # everything else it just spent minutes collecting.
+    # A bad row is logged and dropped rather than aborting the run: one
+    # malformed listing shouldn't cost everything else just spent minutes
+    # collecting.
     rows, errors = validate_rows(scraped)
     for message in errors[:20]:
         logger.warning("Skipping invalid row - %s", message)
