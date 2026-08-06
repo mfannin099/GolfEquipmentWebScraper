@@ -1,6 +1,5 @@
 venv/
 .venv/
-analysis.py
 .vscode/
 
 __pycache__/
@@ -8,14 +7,10 @@ __pycache__/
 
 .DS_Store
 
-# Legacy price history, already migrated into data/club_prices.db
-# and no longer written to. Kept locally as a raw backup.
-club_price_tracker/club_prices.csv
-
-# Price history, appended to by test_scrapers.py on every run
+# Price history, appended to by scrape.py on every run
 data/club_prices.db
 data/club_prices.db-wal
 data/club_prices.db-shm
 
-# Optional per-run log files (test_scrapers.py's WRITE_LOGS_TO_FILE)
+# Per-run log files (scrape.py --log-file)
 club_price_tracker/logs/

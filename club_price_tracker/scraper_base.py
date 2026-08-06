@@ -1,15 +1,8 @@
 """Shared plumbing for the per-site club scrapers.
 
-Every site needs the same things - a rate-limited GET with a browser
-User-Agent, a way to pull an embedded JSON blob out of a <script> tag, the
-same money/discount arithmetic, and the same "is this actually a men's
-club from the brand we asked for?" filter. Keeping one copy here means a
-new site's scraper is just its own parsing logic, and a fix to the shared
-parts lands everywhere at once.
-
-Subclasses set SITE, implement run(), and return a list of dicts whose
-keys match database.COLUMNS (minus run_timestamp/extracted_date, which
-scrape.save() stamps on).
+Subclasses set SITE, implement run(), and return dicts whose keys match
+database.COLUMNS minus run_timestamp/extracted_date, which scrape.save()
+stamps on.
 """
 
 import json
@@ -33,24 +26,20 @@ from rate_limiter import RateLimiter
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; ClubPriceTracker/0.1)"}
 REQUEST_TIMEOUT = 15
 
-# Distinguishes "caller said nothing, use the configured default" from
-# "caller explicitly passed None", which means no cap at all. A plain
-# None default couldn't tell those apart.
+# Sentinel: None is already meaningful for max_variant_lookups (no cap),
+# so a separate value is needed for "not specified".
 USE_CONFIG_DEFAULT = object()
 
 
 def extract_json_blob(html: str, marker: str) -> dict | None:
-    """Pulls the first JSON object that appears after `marker`.
+    """Pulls the first JSON object appearing after `marker`.
 
-    Neither site exposes an API, so variant/price data has to come out of a
-    JS object literal embedded in the page ("jsonConfig" on carlsgolfland,
-    "var productJson=" on tgw.com). Those objects contain nested braces and
-    brace characters inside strings are rare enough not to matter here, so
-    this walks forward tracking depth rather than trying to regex a
-    balanced match.
+    Neither site exposes an API, so variant/price data comes from a JS
+    object literal embedded in the page. Walks forward tracking brace
+    depth; braces inside strings are rare enough not to matter here.
 
-    Returns None when the marker is absent or the blob doesn't parse, so a
-    caller falls back to listing-page data instead of failing the run.
+    None when the marker is absent or the blob doesn't parse, so callers
+    fall back to listing-page data rather than failing the run.
     """
     marker_idx = html.find(marker)
     if marker_idx == -1:
@@ -82,8 +71,8 @@ def parse_money(text: str | None) -> float | None:
 
 
 def discount_pct(original: float | None, current: float | None) -> float | None:
-    """None unless there's a real markdown to report - both sites sometimes
-    populate a "was" price equal to (or below) the current one.
+    """None unless there's a real markdown: both sites sometimes set a
+    "was" price equal to or below the current one.
     """
     if not original or not current or original <= current:
         return None
@@ -93,9 +82,8 @@ def discount_pct(original: float | None, current: float | None) -> float | None:
 def clean_text(source: str | Tag | None) -> str | None:
     """Flattens an HTML fragment to single-spaced plain text.
 
-    Takes either raw markup (tgw.com hands back an HTML string inside its
-    JSON) or an already-parsed element (carlsgolfland's description lives
-    in the page itself, so re-parsing it would be wasted work).
+    Takes raw markup (tgw.com's JSON holds an HTML string) or an
+    already-parsed element (carlsgolfland's lives in the page).
     """
     if source is None:
         return None
@@ -107,10 +95,8 @@ def clean_text(source: str | Tag | None) -> str | None:
 
 
 class BaseScraper:
-    """One site, one brand, one club type.
-
-    Subclasses set SITE (which also selects the site's entry in
-    config.VARIANT_TARGETS) and implement run().
+    """One site, one brand, one club type. SITE also selects the site's
+    entry in config.VARIANT_TARGETS.
     """
 
     SITE: str = ""
@@ -128,19 +114,15 @@ class BaseScraper:
         self.results: list[dict] = []
         self.rate_limiter = RateLimiter(RATE_LIMIT_SECONDS)
         self.variant_target = VARIANT_TARGETS.get(self.SITE, {}).get(club_type)
-        # Names that count as this brand: the brand itself plus any
-        # sub-brand it sells clubs under (Titleist -> Scotty Cameron).
+        # The brand plus any sub-brand it sells clubs under.
         self.brand_terms = [
             term.lower() for term in (brand, *BRAND_ALIASES.get(brand, ()))
         ]
-        # An unlisted club type matches anything, so a new type still
-        # collects data before its keywords are tuned.
+        # An unlisted club type matches anything.
         self.club_type_keywords = CLUB_TYPE_KEYWORDS.get(club_type, [""])
         self.max_pages = max_pages
-        # Per-instance rather than read off config at call time, so two
-        # scrapes running with different caps can't interfere - which
-        # matters as soon as this is driven by concurrent app requests
-        # rather than one CLI process.
+        # Per-instance, so concurrent scrapes with different caps can't
+        # interfere.
         self.max_variant_lookups = (
             MAX_VARIANT_LOOKUPS if max_variant_lookups is USE_CONFIG_DEFAULT
             else max_variant_lookups
@@ -153,13 +135,11 @@ class BaseScraper:
         return resp
 
     def _is_wanted(self, name: str) -> bool:
-        """Both sites' search does loose keyword matching and happily
-        returns other brands and accessories, so results get filtered down
-        to actual right-handed men's clubs from the brand that was asked
-        for.
+        """Filters loose search results down to right-handed men's clubs
+        of the requested brand and type.
 
-        Applied during the listing parse so unwanted rows never reach the
-        results or cost an extra product-page request.
+        Applied during the listing parse, so rejects never reach the
+        results or cost a product-page request.
         """
         name_lower = name.lower()
         if not any(term in name_lower for term in self.brand_terms):
@@ -171,11 +151,8 @@ class BaseScraper:
         return not any(term in name_lower for term in NON_CLUB_TERMS)
 
     def _capped(self, candidates: list[dict]) -> list[dict]:
-        """Trims the list of listings worth an extra product-page request.
-
-        Product pages are where descriptions, stock status and exact
-        variant prices live, but they cost one request each - this is what
-        keeps a test run from sitting there hammering a site for minutes.
+        """Trims the listings worth a product-page request - one
+        rate-limited request each. See config.MAX_VARIANT_LOOKUPS.
         """
         if self.max_variant_lookups is None:
             return candidates

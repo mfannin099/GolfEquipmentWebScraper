@@ -1,28 +1,17 @@
-"""Scrapes club name + price from carlsgolfland.com search results.
+"""Scrapes club listings from carlsgolfland.com search results.
 
-Not Cloudflare-protected, so plain requests + BeautifulSoup works (no
-Selenium needed). Site search redirects "/catalogsearch/result/?q=..."
-to a Searchspring-powered "/search/<query>" page; pagination is "?p=N".
+Not Cloudflare-protected, so plain requests + BeautifulSoup works. Search
+redirects to a Searchspring-powered "/search/<query>" page; pagination is
+"?p=N".
 
-fairway_wood_7 and iron_set are sold as one configurable product with a
-loft/set-makeup dropdown rather than a distinct listing per variant, so
-the search-result price is for the product family, not our specific
-target. Each product page embeds a "jsonConfig" blob mapping every
-attribute-option combination to its own simple-product price - we pull
-that down and pick out the variant matching config.VARIANT_TARGETS.
+Listing cards carry the SKU (`data-bv-product-id`, which doubles as the
+MPN in the page's JSON-LD) and the image. The star rating beside it is
+not usable - Bazaarvoice renders it in the browser, so it never reaches
+the HTML a plain request gets.
 
-The listing page never shows a struck-through "was" price - only the
-current one - so true discount/MSRP info also requires a product-page
-visit; it's read off the same jsonConfig blob (oldPrice vs finalPrice)
-already being fetched for variant resolution, plus a stock-status
-element on the page. See _fetch_product_details.
-
-The listing page does carry the SKU for free, on each card's
-`data-bv-product-id` (a Bazaarvoice hook), along with the product image.
-That SKU doubles as the product's MPN in the page's JSON-LD, which makes
-it the best available handle for matching a club across sites. The
-neighbouring star rating is *not* usable - Bazaarvoice renders it in the
-browser, so it never appears in the HTML a plain request gets back.
+The listing never shows a "was" price, and variant club types are sold as
+one configurable product, so exact price, MSRP/discount and stock all
+need a product page. All come off its "jsonConfig" blob.
 """
 
 import json
@@ -36,8 +25,8 @@ from scraper_base import BaseScraper, clean_text, discount_pct, extract_json_blo
 BASE_URL = "https://www.carlsgolfland.com"
 JSON_CONFIG_MARKER = '"jsonConfig"'
 
-# schema.org availability URLs -> the same wording tgw.com's scraper
-# reports, so stock_status means one thing across sites.
+# schema.org availability -> tgw.com's wording, so stock_status means
+# one thing across sites.
 AVAILABILITY_LABELS = {
     "instock": "In Stock",
     "outofstock": "Out of Stock",
@@ -50,10 +39,8 @@ AVAILABILITY_LABELS = {
 
 
 def _product_availability(soup: BeautifulSoup) -> str | None:
-    """Reads stock status out of the page's JSON-LD Product block.
-
-    Backs up the `.stock` element, which is present on some product pages
-    and empty on others.
+    """Stock status from the JSON-LD Product block, backing up the
+    `.stock` element, which is empty on some product pages.
     """
     for script in soup.find_all("script", type="application/ld+json"):
         try:
@@ -74,9 +61,8 @@ def _product_availability(soup: BeautifulSoup) -> str | None:
 
 
 def _product_description(soup: BeautifulSoup) -> str | None:
-    """The product page's real description tab. Preferred over the JSON-LD
-    `description`, which is just SEO boilerplate ("Shop Now and Save Big
-    on ... at Carl's Golfland").
+    """The real description tab. The JSON-LD `description` is only SEO
+    boilerplate ("Shop Now and Save Big on ... at Carl's Golfland").
     """
     return clean_text(soup.select_one(".product.attribute.description"))
 
@@ -131,10 +117,8 @@ class CarlsGolflandScraper(BaseScraper):
         return True
 
     def _fetch_product_details(self, product_url: str) -> dict:
-        """Open a product page and pull everything the listing page can't
-        show: the exact variant price (when self.variant_target is set),
-        true MSRP/discount (the listing never shows a "was" price), and
-        stock status.
+        """Everything the listing page can't show: exact variant price
+        (when variant_target is set), true MSRP/discount, stock status.
         """
         details = {
             "variant_price": None,
@@ -201,10 +185,9 @@ class CarlsGolflandScraper(BaseScraper):
             if not found_items:
                 break
 
-        # Which listings are worth an extra product-page request: when
-        # there's a variant to resolve, every listing needs one to get an
-        # accurate price; otherwise only items already flagged "ON SALE"
-        # by name are worth the trip, to pull real MSRP/discount + stock.
+        # With a variant to resolve, every listing needs a product page
+        # for an accurate price; otherwise only "ON SALE" items are worth
+        # the trip, for real MSRP/discount + stock.
         if self.variant_target:
             candidates = self.results
         else:

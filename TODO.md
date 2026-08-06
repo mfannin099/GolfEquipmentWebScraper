@@ -1,33 +1,59 @@
 # Club Price Tracker - TODO
 
-- [ ] **Build a golfdirectnow.com scraper** - viable, Shopify-based. Also Cloudflare-fronted but no challenge triggered by plain `requests`. Standard Shopify `/search?q={query}` and `/collections/golf-clubs` both return server-rendered `.card__` product cards with real names (confirmed `Callaway Elyte X Driver` for query `Callaway driver`) and prices under `.price__regular .price-item--regular` (format `$ 399.99`, note the space after `$`). Straightforward Shopify scraping pattern, well-documented elsewhere. Survived 5 rapid repeat requests with no blocking. Adding it is a new `BaseScraper` subclass plus one entry in `scrape.SCRAPERS` - it then joins the matrix and the CLI's `--site` choices automatically.
+## MVP application
+
+Goal: a user picks brand / club type / site and either searches the stored history or triggers a live scrape.
+
+The pieces already in place: `scrape.scrape()` returns rows without touching the DB, `scrape.save()` persists them, `--brand` accepts free text, and WAL mode lets the app read while a scrape writes. Streamlit is the shortest path — one file, no callbacks, `st.dataframe` handles the table for free.
+
+**Build in this order:**
+
+- [ ] **1. Read-only view first.** `app.py` with sidebar filters (brand, club type, site, date range, on-sale-only) running a `SELECT` against `data/club_prices.db`. No scraping. This is genuinely most of the value and needs no new backend code.
+  - Add a `query_history()` to `database.py` rather than putting SQL in the UI.
+  - Open the connection read-only (`file:...?mode=ro` URI) so the app can never corrupt history.
+  - `@st.cache_data` the query, keyed on the filters, or every widget change re-runs it.
+- [ ] **2. Price history chart.** With `run_timestamp` per row, a line chart per listing is the payoff of collecting history. Needs 3+ runs to look like anything.
+- [ ] **3. Live scrape button.** Calls `scrape()` directly, renders rows, doesn't save.
+  - Must pass `max_variant_lookups=0` or a page load waits on rate-limited product requests. A full combination is ~8s with the cap at 0; ~15s at 5.
+  - Restrict to one brand + one club type + one site per click. The full matrix is ~15 minutes and will time out.
+  - `st.spinner` + a row count, or it looks hung.
+- [ ] **4. Deal view.** Biggest `discount_pct` in the most recent run, and anything cheaper than its own previous price — `price_alerts.log_price_drops()` already has that logic; return the drops instead of only logging them.
+
+**Decisions to make when starting:**
+- Where the app file lives — a sibling `app/` directory keeps Streamlit's dependency out of the scraper package.
+- Whether a scrape is triggered from the UI at all, or the app stays read-only and collection is purely scheduled. Read-only is safer and simpler; scheduling covers freshness.
+- SQLite is single-writer. Fine for one local user; if the app is ever hosted for several, scraping needs to move behind a queue.
+
+## Scheduling the scraper
+
+Nothing about `scrape.py` needs to change to be scheduled — it's already a plain CLI with a proper exit code (1 when nothing was scraped) and `--log-file`.
+
+- [ ] **Fix these two first — they matter much more once runs are unattended:**
+  - `scrape.py` holds every combination in memory and only calls `save()` at the end, so a crash on the last of 84 combinations discards the whole ~15-minute run. Save per combination (or per brand).
+  - `RateLimiter` is per scraper instance, so the 1.5s floor only applies *within* one brand/club-type combination — each new combination's first request goes out immediately. A per-site shared limiter would hold the real floor. Worth fixing before running unattended and repeatedly against someone else's site.
+- [ ] **Pick a scheduler.** `launchd` is the right one for macOS — `cron` exists but Apple has deprecated it, and it won't run if the machine is asleep at the scheduled time whereas `launchd` catches up on wake.
+  - A `~/Library/LaunchAgents/com.mattfannin.clubprices.plist` with `StartCalendarInterval` (daily, off-peak).
+  - Must invoke the venv's Python by absolute path — `launchd` gets a minimal environment, so bare `uv` or `python` won't resolve. Either `/full/path/.venv/bin/python scrape.py` or `/full/path/to/uv run --project /full/path python scrape.py`.
+  - Set `WorkingDirectory` to `club_price_tracker/`, since the modules use flat imports and `DB_PATH` resolves relative to the file.
+  - Redirect `StandardOutPath`/`StandardErrorPath`, or a failure is silent.
+- [ ] **Decide the cadence.** Daily is plenty — prices don't move hourly, and each run is ~900 rows, so a year of daily runs is ~330k rows. SQLite handles that without trouble.
+- [ ] **Raise `MAX_VARIANT_LOOKUPS` for scheduled runs** (`--max-variant-lookups all`) — nobody's waiting on it, and it's the only way `description`/`stock_status` get filled in beyond the first few results. Expect a much longer run; check total wall time before committing to a schedule.
+- [ ] **Notice failures.** A silent scheduled job that stopped working weeks ago is worse than no job. Simplest version: have the run write a row count somewhere the app displays, so a stale "last run" date is visible.
+- [ ] If this ever needs to run when the laptop doesn't, it's a GitHub Actions cron + committing the DB, or a small always-on host. Both are a bigger change than they look, because the DB stops being local.
+
+## Scrapers
+
+- [ ] **Build a golfdirectnow.com scraper** - viable, Shopify-based. Also Cloudflare-fronted but no challenge triggered by plain `requests`. Standard Shopify `/search?q={query}` and `/collections/golf-clubs` both return server-rendered `.card__` product cards with real names (confirmed `Callaway Elyte X Driver` for query `Callaway driver`) and prices under `.price__regular .price-item--regular` (format `$ 399.99`, note the space after `$`). Adding it is a new `BaseScraper` subclass plus one entry in `scrape.SCRAPERS` - it then joins the matrix and the CLI's `--site` choices automatically.
 - [ ] Link the 18 birdies project on github... allow user to pull 18 birdies data and analyze
 
-## Frontend application (end goal)
+## Data quality & coverage
 
-- [ ] Build a UI (Streamlit / Dash / similar) that lets a user either **query the stored history** in `data/club_prices.db` or **trigger a live scrape** with parameters they choose (brand, club type, site).
-  - `scrape.py` is already shaped for this: `scrape()` returns rows without touching the database (live query), `save()` persists them (collection run), and neither needs the CLI. The app imports them rather than shelling out.
-  - `--brand` accepts any search term, not just `config.BRANDS`, so a free-text brand box works today.
-  - The DB runs in WAL mode, so the app can read while a scrape is writing without hitting `database is locked`.
-  - Open question: for a live scrape the request has to finish inside a page load, so `max_variant_lookups` needs to stay low (each lookup is a rate-limited request). Worth deciding whether live queries skip product-page enrichment entirely and only show listing-page fields.
+- [ ] Cross-site product matching: the same club shows up as unrelated rows per site. `sku` is populated on both sites and carlsgolfland's doubles as the MPN, so check how far SKU/MPN matching gets before falling back to name normalization (stripping "- ON SALE", "2026", etc.).
+- [ ] Track a rolling low/high per listing, not just the previous price, so "cheapest it's ever been" is answerable.
+- [ ] Ratings are tgw.com-only. carlsgolfland's `data-bv-product-id` is a Bazaarvoice product ID, so their public API may supply rating/review count without a browser.
+- [ ] `TgwScraper` ignores `max_pages` - `/l/search` returns everything in one response for the queries tried so far. Confirm that holds for broader searches.
+- [ ] Some listings have a null `price` because the site shows "Add To Cart To See Price" (MAP pricing). Worth confirming the product page doesn't expose it.
 
-## Backlog
+## Code quality
 
-### Data persistence & tracking
-- [x] Persist results over time in SQLite instead of overwriting a single CSV, so price history is queryable. `club_price_tracker/database.py` - one `SCHEMA` spec generates the DDL, the INSERT, and the row validator; `scrape.py` appends to `data/club_prices.db` with a `run_timestamp` and `extracted_date` per row.
-- [x] Define a dedup key once persisted - `(site, brand, club_type, name, variant, run_timestamp)`, enforced as a UNIQUE index + `INSERT OR IGNORE` so reruns are idempotent rather than piling up duplicates.
-- [x] Price-drop/deal alerting: `price_alerts.log_price_drops()` compares each pull against that listing's last recorded price (resolved in SQL by `database.latest_prices()`) and logs drops. Still logger-only - email/Slack would be the next step.
-- [ ] Cross-site product matching: normalize names (strip suffixes like "- ON SALE", "2026", "Left Handed") so the same real-world club can be compared side-by-side across sites instead of showing up as unrelated rows. The `sku` column is now populated on both sites and carlsgolfland's doubles as the MPN, so start by checking how far SKU/MPN matching gets before falling back to name normalization.
-- [ ] Now that history has more than one run per product, track a rolling low/high per listing (not just the previous price) so "cheapest it's ever been" is answerable.
-
-### Data coverage
-- [ ] `MAX_VARIANT_LOOKUPS = 5` still caps product-page visits per combination by default, so `description`, `stock_status` and true discount info only land on the first few results of each. `scrape.py --max-variant-lookups all` lifts the cap for a real collection run; consider whether the *default* should be higher now that it's overridable per run.
-- [ ] Ratings are tgw.com-only - carlsgolfland renders them client-side via Bazaarvoice. Its `data-bv-product-id` is the Bazaarvoice product ID, so their public API may be able to supply rating/review count without a browser.
-- [ ] `TgwScraper` ignores `max_pages` - `/l/search` returns its whole result set in one response, so there's no page 2 to fetch today. Worth confirming that holds for queries with more matches than a driver search returns.
-
-### Code quality & tooling
-- [x] Structured logging instead of `print()` - `logging_config.get_logger()`, with `scrape.py --log-file` to also write a run to `logs/`.
-- [x] Simple CLI to run a single brand/club_type/site combo on demand instead of always running the full matrix - `scrape.py`, which replaced `test_scrapers.py`.
-- [ ] `scrape.py` collects every combination into memory and only calls `save()` at the end, so a crash on the last combination throws away the whole run - currently ~15 minutes and 84 combinations for the full matrix. Save per combination (or per brand) instead, so a failure keeps whatever already succeeded.
-- [ ] `RateLimiter` is per scraper instance, so the 1.5s floor only applies *within* one brand/club-type combination - the first request of each new combination goes out immediately after the last one. Across 84 combinations that's a fair bit faster than intended; a per-site shared limiter would hold the real floor.
-- [ ] Local parser tests using saved HTML fixtures, so selector/parsing logic can be iterated on without hitting live sites on every change. This is the biggest remaining gap: every check today costs real requests against both sites, and a selector breaking is only caught by noticing a result count drop.
+- [ ] Local parser tests using saved HTML fixtures, so selector logic can be iterated without hitting live sites. The biggest remaining gap: every check costs real requests, and a broken selector is only caught by noticing a result count drop.

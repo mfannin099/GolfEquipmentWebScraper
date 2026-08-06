@@ -5,23 +5,13 @@ Entry point for the tracker. With no arguments it runs the full matrix
 results to data/club_prices.db:
 
     uv run python scrape.py
-
-Narrow it down with flags - useful when iterating on one site's parsing,
-or pulling a single brand on demand:
-
     uv run python scrape.py --brand Titleist --club-type driver
     uv run python scrape.py --site tgw.com --max-variant-lookups all
     uv run python scrape.py --brand Srixon --club-type driver --dry-run
 
-Every row is stamped with the run's `run_timestamp` and an
-`extracted_date`, so the table accumulates queryable price history rather
-than being overwritten. The DB's unique index makes the append idempotent
-- a listing returned twice in one run can't land twice.
-
-The work is split into scrape() and save() rather than one do-everything
-function so a caller can use either half on its own. A UI wanting to show
-live results for a user's query calls scrape() and renders the rows
-without touching the database; a scheduled collection run calls both.
+Split into scrape() and save() so a caller can use either half: a UI
+showing live results calls scrape() and renders the rows without touching
+the database, while a collection run calls both.
 """
 
 import argparse
@@ -39,9 +29,8 @@ from price_alerts import log_price_drops
 from scraper_base import USE_CONFIG_DEFAULT
 from tgw_scraper import TgwScraper
 
-# Site name -> scraper class. Keys come off the classes themselves so a
-# --site value can't drift from what actually lands in the DB's `site`
-# column. Add a site here and it joins the matrix and the CLI at once.
+# Keys come off the classes so a --site value can't drift from the DB's
+# `site` column. Adding a site here joins the matrix and the CLI at once.
 SCRAPERS = {
     CarlsGolflandScraper.SITE: CarlsGolflandScraper,
     TgwScraper.SITE: TgwScraper,
@@ -49,12 +38,9 @@ SCRAPERS = {
 
 
 def variant_cap(value: str) -> int | None:
-    """argparse type for --max-variant-lookups.
-
-    Maps the CLI spelling straight onto the value scrape() takes, so the
-    flag and the keyword argument can't drift apart: "all" -> None
-    (uncapped), an integer -> that many. Omitting the flag entirely is
-    what falls back to config.MAX_VARIANT_LOOKUPS.
+    """Maps the CLI spelling onto the value scrape() takes, so flag and
+    keyword argument can't drift: "all" -> None (uncapped), an integer ->
+    that many. Omitting the flag falls back to config.MAX_VARIANT_LOOKUPS.
     """
     if value.lower() == "all":
         return None
@@ -88,10 +74,8 @@ def scrape(
 ) -> list[dict]:
     """Runs the requested brand x club type x site combinations.
 
-    Returns raw scraper rows - not stamped with a run_timestamp, not
-    validated, not saved. One combination failing is logged and skipped so
-    the rest of the matrix still runs; a single site being down shouldn't
-    cost the whole run.
+    Returns raw rows - unstamped, unvalidated, unsaved. A failing
+    combination is logged and skipped so the rest of the matrix still runs.
     """
     logger = logger or get_logger(__name__)
     sites = list(sites) if sites is not None else list(SCRAPERS)
@@ -125,9 +109,7 @@ def save(
 ) -> SaveSummary:
     """Stamps, validates, alerts on price drops, and appends to the DB.
 
-    An invalid row is logged and dropped rather than aborting: one
-    malformed listing shouldn't cost everything else a run just spent
-    minutes collecting.
+    Invalid rows are logged and dropped rather than aborting the run.
     """
     logger = logger or get_logger(__name__)
     run_timestamp = run_timestamp or datetime.now().isoformat(timespec="seconds")
@@ -142,8 +124,8 @@ def save(
         logger.warning("... and %d more invalid row(s)", len(errors) - 20)
 
     with connect(db_path) as conn:
-        # Read the previous prices before inserting, or this run's own rows
-        # would be what each listing gets compared against.
+        # Read previous prices before inserting, or this run's own rows
+        # become what each listing is compared against.
         drops = log_price_drops(latest_prices(conn), valid, logger)
         inserted = insert_rows(conn, valid)
         history_rows = row_count(conn)
@@ -168,17 +150,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--brand", nargs="+", default=list(BRANDS), metavar="NAME",
-        # Deliberately not restricted to config.BRANDS: both sites take an
-        # arbitrary search term, so a one-off pull for a brand that isn't
-        # tracked routinely should just work.
+        # Unrestricted: both sites take an arbitrary search term.
         help=f"Brands to scrape (any search term works). Default: {', '.join(BRANDS)}",
     )
     parser.add_argument(
         "--club-type", nargs="+", choices=list(CLUB_TYPES), default=list(CLUB_TYPES),
         metavar="TYPE",
-        # Restricted, unlike --brand: each club type needs an entry in
-        # CLUB_TYPES for its search term and in VARIANT_TARGETS to resolve
-        # the right loft/set variant.
+        # Restricted, unlike --brand: each needs a CLUB_TYPES search term
+        # and CLUB_TYPE_KEYWORDS entry.
         help=f"Club types to scrape. Choices: {', '.join(CLUB_TYPES)}",
     )
     parser.add_argument(
@@ -217,9 +196,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
-    # Built before anything else logs: get_logger() attaches handlers on
-    # the first call for a given name and returns the same logger after
-    # that, so a file handler has to be requested up front or not at all.
+    # Before anything else logs: get_logger() attaches handlers on the
+    # first call for a name, so --log-file must be honoured up front.
     logger = get_logger(__name__, write_to_file=args.log_file)
 
     run_timestamp = datetime.now().isoformat(timespec="seconds")

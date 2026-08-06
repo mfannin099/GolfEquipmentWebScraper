@@ -2,45 +2,25 @@
 
 Tracks men's golf club prices across [tgw.com](https://www.tgw.com) and [carlsgolfland.com](https://www.carlsgolfland.com), parameterized by brand and club type, and accumulates the results as queryable price history in SQLite.
 
-Plain `requests` + BeautifulSoup — neither site needs browser automation, so there's no Selenium/Chrome dependency.
+Plain `requests` + BeautifulSoup — neither site needs browser automation, so there's no Selenium or Chrome dependency.
 
-## What's in here
+## Files
 
-### `club_price_tracker/`
-The tracker, driven by a shared config so new brands/club types don't require code changes:
+Everything lives in `club_price_tracker/`:
 
-- **`config.py`** — `BRANDS` (Callaway, TaylorMade, Titleist, Ping, Cobra, Mizuno) and `CLUB_TYPES` (drivers, 7-woods, iron sets). `build_query()` combines a brand + club type into a search string. Also holds `MENS_ONLY_EXCLUDE_TERMS` (filters out women's/junior/left-handed listings), `VARIANT_TARGETS` (which loft/set-makeup option to resolve an exact price for), `RATE_LIMIT_SECONDS`, and `MAX_VARIANT_LOOKUPS` (caps how many listings get an extra product-page request per run).
-- **`scraper_base.py`** — shared plumbing every site scraper needs: a rate-limited GET with a browser User-Agent, `extract_json_blob()` for pulling an embedded JS object literal out of a `<script>` tag (neither site exposes an API), money/discount arithmetic, HTML-to-text flattening, the brand + men's-only listing filter, and the per-instance product-page request cap. A new site's scraper is then just its own parsing logic.
-- **`carlsgolfland_scraper.py`** — `CarlsGolflandScraper` scrapes name, price, sale status, discount %, and stock status. The site isn't behind Cloudflare; it follows the site's search redirect to its Searchspring-powered results page and paginates with `?p=N`. Products flagged "ON SALE" or needing a specific loft/set variant get one extra product-page request (capped by `MAX_VARIANT_LOOKUPS`) to read exact pricing/discount/stock off the page's embedded `jsonConfig` data.
-- **`tgw_scraper.py`** — `TgwScraper` scrapes the same fields plus a `description`. tgw.com is Cloudflare-fronted but not JS-challenge-protected. It searches via `/l/search?k=`, where the listing cards already carry both current and "was" price for free sale/discount detection. Every listing (capped by `MAX_VARIANT_LOOKUPS`) gets one product-page request to read the page's embedded `productJson` blob, which resolves the exact loft/set variant (`ClubLoft` degrees for fairway woods, `SetComposition` for iron sets), stock status, review data, and the product description.
-- **`database.py`** — SQLite persistence for price history. A single `SCHEMA` list is the source of truth: it generates the `CREATE TABLE` statement, the `INSERT`, and the Python row validator, so a column can't be added to one and forgotten in the others. Validation rejects unknown columns (catching a scraper quietly renaming a field), missing required values, uncoercible types, and out-of-range values. Appends are idempotent — a unique index over `(site, brand, club_type, name, variant, run_timestamp)` plus `INSERT OR IGNORE` means a rerun can't pile up duplicates. Also exposes `latest_prices()`, which resolves each listing's most recent price in SQL rather than scanning all history in Python.
-- **`price_alerts.py`** — compares a run against each listing's last recorded price (via `latest_prices()`) and logs any drops. Logger-only for now.
-- **`rate_limiter.py`** — minimum interval between requests to a site, so a run doesn't pull pages faster than a real shopper would.
-- **`logging_config.py`** — `get_logger()` sets up console logging always, plus a timestamped file under `logs/` (gitignored) when called with `write_to_file=True`.
-- **`scrape.py`** — the entry point. With no arguments it runs every brand × club type against both sites; flags narrow it to a single brand, club type or site. Split into `scrape()` (returns rows, touches nothing) and `save()` (stamps, validates, alerts on drops, appends), so a future UI can use either half without going through the CLI. Every row carries the run's `run_timestamp` and an `extracted_date`, so the table accumulates queryable price history instead of being overwritten. Invalid rows are logged and skipped rather than aborting the run.
+| File | What it does |
+|---|---|
+| **`scrape.py`** | **Entry point.** CLI + the `scrape()` / `save()` functions the whole pipeline runs through. |
+| `config.py` | Brands, club types, search filters, rate limit, variant targets. The only file you edit to change *what* gets tracked. |
+| `scraper_base.py` | `BaseScraper` + shared helpers: rate-limited GET, embedded-JSON extraction, money/discount math, the listing filter. |
+| `tgw_scraper.py` | tgw.com listing + product-page parsing. |
+| `carlsgolfland_scraper.py` | carlsgolfland.com listing + product-page parsing. |
+| `database.py` | SQLite schema, validation, inserts. `SCHEMA` generates the DDL, the INSERT, and the row validator. |
+| `price_alerts.py` | Compares a run against each listing's last recorded price and logs drops. |
+| `rate_limiter.py` | Minimum interval between requests to a site. |
+| `logging_config.py` | Console logging, plus an optional timestamped file under `logs/`. |
 
-### `data/`
-`club_prices.db` — the append-only price history. Gitignored, since it grows with every run.
-
-## The data
-
-Each row carries: `site`, `brand`, `club_type`, `name`, `variant`, `sku`, `price`, `original_price`, `discount_pct`, `on_sale`, `stock_status`, `rating`, `review_count`, `image_url`, `description`, and `link`, plus `run_timestamp` and `extracted_date`.
-
-`sku` comes free off both sites' listing pages (tgw.com's `pid` attribute, carlsgolfland's `data-bv-product-id`, which doubles as the MPN) and is the best available handle for matching the same club across sites. `rating`/`review_count` are tgw.com-only — carlsgolfland renders its star ratings client-side via Bazaarvoice, so they never appear in the HTML a plain request gets back.
-
-## Status
-
-Early-stage but functional end to end: scraping → validation → storage runs for men's driver/fairway-wood/iron-set prices across six brands on both sites, including SKU, sale/discount/stock status, descriptions, images, and (tgw.com only) ratings. Price history is queryable and price-drop detection works off real history.
-
-`MAX_VARIANT_LOOKUPS` is currently the main coverage limiter — `description` and `stock_status` only land on the first few results per brand/club-type combo. See `TODO.md` for open items.
-
-## Setup
-
-Dependencies are managed with [uv](https://docs.astral.sh/uv/).
-
-```bash
-uv sync
-```
+`data/club_prices.db` holds the price history. It's gitignored — it grows with every run, and the `-wal`/`-shm` files beside it are SQLite's write-ahead log (see below).
 
 ## Usage
 
@@ -50,17 +30,19 @@ Run everything — every configured brand × club type against both sites:
 cd club_price_tracker && uv run python scrape.py
 ```
 
-Or narrow it down. `--brand` takes any search term, not just the six in `config.py`:
+Narrow it down. `--brand` takes any search term, not just the six in `config.py`:
 
 ```bash
-cd club_price_tracker && uv run python scrape.py --brand Titleist --club-type driver
+cd club_price_tracker && uv run python scrape.py --brand Titleist --club-type putter
 ```
+
+Preview without writing to the database:
 
 ```bash
 cd club_price_tracker && uv run python scrape.py --brand Srixon --club-type driver --dry-run
 ```
 
-`--max-variant-lookups` controls how many product pages get visited per combination — that's where descriptions, stock status and exact variant prices come from, at one rate-limited request each. `all` lifts the cap for a real collection run:
+`--max-variant-lookups` controls how many product pages get visited per combination — that's where descriptions, stock status and exact variant prices come from, at one rate-limited request each. `all` lifts the cap for a full collection run:
 
 ```bash
 cd club_price_tracker && uv run python scrape.py --site tgw.com --max-variant-lookups all
@@ -68,8 +50,44 @@ cd club_price_tracker && uv run python scrape.py --site tgw.com --max-variant-lo
 
 `uv run python scrape.py --help` lists the rest (`--site`, `--max-pages`, `--db`, `--log-file`).
 
-Querying the history:
+## The data
+
+Each row carries: `site`, `brand`, `club_type`, `name`, `variant`, `sku`, `price`, `original_price`, `discount_pct`, `on_sale`, `stock_status`, `rating`, `review_count`, `image_url`, `description`, `link`, plus `run_timestamp` and `extracted_date`.
+
+Tracked club types: `driver`, `fairway_wood_3`, `fairway_wood_7`, `hybrid`, `iron_set`, `wedge`, `putter`.
 
 ```bash
 sqlite3 data/club_prices.db "SELECT extracted_date, site, name, price, discount_pct FROM club_prices WHERE on_sale = 1 ORDER BY discount_pct DESC LIMIT 10"
+```
+
+Notes on the fields:
+
+- **`sku`** is populated on both sites (tgw.com's `pid` attribute, carlsgolfland's `data-bv-product-id`, which doubles as the MPN). It's the best handle for matching the same club across sites.
+- **`rating`/`review_count`** are tgw.com-only — carlsgolfland renders its stars client-side via Bazaarvoice, so they never appear in the HTML a plain request gets back.
+- **A null `price`** usually means the listing says "Add To Cart To See Price" (MAP pricing), not a parse failure.
+- **`description` and `stock_status`** only appear on the first `MAX_VARIANT_LOOKUPS` results per combination, since each needs its own product-page request.
+
+### Why appends are safe
+
+Every run appends its full result set rather than overwriting. A `UNIQUE` index over `(site, brand, club_type, name, variant, run_timestamp)` plus `INSERT OR IGNORE` means rerunning the same scrape can't create duplicates, while a *later* run legitimately adds new history.
+
+### Why WAL mode
+
+`database.py` sets `journal_mode=WAL`, which is what creates `club_prices.db-wal` (pending writes) and `club_prices.db-shm` (a shared-memory index into it). Under WAL, readers don't block the writer and vice versa — so a dashboard can query the DB while a scrape is running instead of failing with `database is locked`. SQLite removes both files on a clean close; don't delete a `-wal` by hand while a connection is open.
+
+## Filtering
+
+Both sites' search is loose keyword matching, so raw results need filtering. `config.py` holds four lists that do it, applied in `BaseScraper._is_wanted` before anything costs a product-page request:
+
+- `CLUB_TYPE_KEYWORDS` — the club type's own word must appear in the name. Without it, "Titleist putter" on tgw.com returns 42 drivers and fairway woods out of 44 results.
+- `NON_CLUB_TERMS` — drops headcovers, bags, gloves, package sets.
+- `BRAND_ALIASES` — tgw.com lists Titleist putters as "Scotty Cameron" and Callaway's as "Odyssey", with no parent brand in the name. The `brand` column still records the parent.
+- `MENS_ONLY_EXCLUDE_TERMS` — women's/junior/left-handed lines.
+
+## Setup
+
+Dependencies are managed with [uv](https://docs.astral.sh/uv/), which creates and manages the `.venv/` directory itself:
+
+```bash
+uv sync
 ```

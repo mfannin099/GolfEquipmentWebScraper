@@ -1,17 +1,15 @@
 """SQLite persistence for club price history.
 
-Every run appends its full result set, so the table accumulates price
-history rather than being overwritten.
+Every run appends its full result set, so the table accumulates history
+rather than being overwritten.
 
-The SCHEMA list below is the single source of truth - it generates the
-CREATE TABLE statement, the INSERT statement, and the Python row
-validator, so a column can never be added to one and forgotten in the
-others.
+SCHEMA is the single source of truth: it generates the CREATE TABLE, the
+INSERT, and the row validator, so a column can't be added to one and
+forgotten in the others.
 
-Appends are idempotent: a UNIQUE index over the dedup key
+Appends are idempotent - a UNIQUE index over
 (site, brand, club_type, name, variant, run_timestamp) plus INSERT OR
-IGNORE means a rerun, or a scraper handing back the same listing twice,
-can't pile up duplicate rows - no dedup pass needed on the way in.
+IGNORE, so no dedup pass is needed on the way in.
 """
 
 import sqlite3
@@ -32,15 +30,12 @@ class SchemaError(ValueError):
 # --------------------------------------------------------------------------
 # Value coercion
 #
-# Scrapers hand back real Python types (None/float/bool), but a value
-# lifted straight out of page markup arrives as a string ("False",
-# "24.99"). Each coercer normalizes both, and raises ValueError with a
-# readable message when it can't.
+# Scrapers return real Python types, but values lifted from page markup
+# arrive as strings ("False", "24.99"). Each coercer handles both and
+# raises ValueError with a readable message when it can't.
 # --------------------------------------------------------------------------
 
-# Strings that mean "no value" rather than being real content - what an
-# empty cell or a missing attribute tends to stringify to. A real
-# description/name is never one of these.
+# Strings meaning "no value" rather than real content.
 _NULLISH = {"", "none", "nan", "null", "na", "n/a"}
 
 _TRUTHY = {"true", "1", "yes", "y", "t"}
@@ -95,9 +90,8 @@ def _as_iso_timestamp(value: Any) -> str:
 
 
 def _derive_extracted_date(row: dict) -> str:
-    """The calendar date a row was pulled, so history can be grouped by day
-    without parsing run_timestamp in every query. Derived rather than
-    supplied, so it can't drift out of sync with run_timestamp.
+    """Calendar date the row was pulled, for grouping history by day.
+    Derived, so it can't drift from run_timestamp.
     """
     return datetime.fromisoformat(row["run_timestamp"]).date().isoformat()
 
@@ -112,9 +106,8 @@ class Column:
     sql_type: str
     coerce: Callable[[Any], Any]
     nullable: bool = True
-    # Inclusive (low, high) range, enforced both in Python (for a readable
-    # error naming the row) and as a SQL CHECK (so hand-written INSERTs
-    # can't get around it either).
+    # Inclusive range, enforced in Python (readable error) and as a SQL
+    # CHECK (so hand-written INSERTs can't bypass it).
     bounds: tuple[float, float] | None = None
     # Fills the column from the rest of the row instead of from input.
     derive: Callable[[dict], Any] | None = None
@@ -133,8 +126,7 @@ class Column:
 
 
 SCHEMA: Sequence[Column] = (
-    # When the run that produced this row started (ISO, seconds). Shared by
-    # every row in a run, so it doubles as the run identifier.
+    # Shared by every row in a run, so it doubles as the run identifier.
     Column("run_timestamp", "TEXT", _as_iso_timestamp, nullable=False),
     Column("extracted_date", "TEXT", _as_text, nullable=False, derive=_derive_extracted_date),
     Column("site", "TEXT", _as_text, nullable=False),
@@ -142,8 +134,8 @@ SCHEMA: Sequence[Column] = (
     Column("club_type", "TEXT", _as_text, nullable=False),
     Column("name", "TEXT", _as_text, nullable=False),
     Column("variant", "TEXT", _as_text),
-    # Retailer SKU. carlsgolfland's doubles as the MPN, so it's the best
-    # handle available for matching the same club across sites.
+    # carlsgolfland's doubles as the MPN - the best handle for matching
+    # the same club across sites.
     Column("sku", "TEXT", _as_text),
     Column("price", "REAL", _as_real, bounds=(0, 100_000)),
     Column("original_price", "REAL", _as_real, bounds=(0, 100_000)),
@@ -159,14 +151,12 @@ SCHEMA: Sequence[Column] = (
 
 COLUMNS: tuple[str, ...] = tuple(column.name for column in SCHEMA)
 
-# Identifies one product listing across runs (i.e. everything but the run
-# itself). price_alerts uses the same grouping to find a listing's previous
-# price - see price_alerts.PRODUCT_KEY.
+# Identifies one listing across runs. price_alerts uses the same grouping
+# to find a listing's previous price.
 PRODUCT_COLUMNS = ("site", "brand", "club_type", "name", "variant")
 
-# variant is nullable and SQLite treats NULLs as distinct in a UNIQUE index,
-# so it's coalesced here - otherwise two runs of the same variant-less
-# listing would both insert.
+# SQLite treats NULLs as distinct in a UNIQUE index, so nullable variant
+# is coalesced - otherwise duplicate variant-less listings would insert.
 _DEDUP_EXPR = ", ".join(
     f'COALESCE("{c}", \'\')' if c == "variant" else f'"{c}"'
     for c in (*PRODUCT_COLUMNS, "run_timestamp")
@@ -196,9 +186,8 @@ _INSERT = f'INSERT OR IGNORE INTO "{TABLE}" ({_QUOTED_COLUMNS}) VALUES ({_PLACEH
 
 @contextmanager
 def connect(db_path: Path | str = DB_PATH) -> Iterator[sqlite3.Connection]:
-    """Opens the price history DB, creating the file and schema if needed.
-
-    Commits on clean exit, rolls back on exception, always closes.
+    """Opens the DB, creating file and schema if needed. Commits on clean
+    exit, rolls back on exception, always closes.
     """
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -232,13 +221,12 @@ def init_db(conn: sqlite3.Connection) -> None:
 def validate_row(row: Mapping[str, Any], label: str = "row") -> dict[str, Any]:
     """Coerces one input row into a dict holding exactly COLUMNS.
 
-    Raises SchemaError on an unknown key (catches a scraper quietly renaming
-    a field), a missing/null NOT NULL value, an uncoercible value, or a
-    value outside its declared bounds.
+    Raises SchemaError on an unknown key (catching a scraper renaming a
+    field), a missing NOT NULL value, an uncoercible value, or one outside
+    its bounds.
 
-    Returns a dict rather than an insert-ready tuple so callers can read
-    normalized values back - price_alerts compares against these, and its
-    keys have to match what latest_prices() reads out of the DB.
+    Returns a dict rather than an insert-ready tuple so price_alerts can
+    compare against normalized values.
     """
     unknown = set(row) - set(COLUMNS)
     if unknown:
@@ -274,9 +262,8 @@ def validate_row(row: Mapping[str, Any], label: str = "row") -> dict[str, Any]:
 def validate_rows(
     rows: Iterable[Mapping[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """Validates every row, collecting failures instead of stopping at the
-    first one - a single malformed listing shouldn't cost a caller the whole
-    run's worth of good data. Callers decide whether to raise or skip.
+    """Collects failures rather than stopping at the first, so one bad
+    listing doesn't cost a whole run. Callers decide to raise or skip.
     """
     valid: list[dict[str, Any]] = []
     errors: list[str] = []
@@ -293,11 +280,8 @@ def validate_rows(
 # --------------------------------------------------------------------------
 
 def insert_rows(conn: sqlite3.Connection, rows: Sequence[Mapping[str, Any]]) -> int:
-    """Appends rows that have been through validate_row(s), skipping any
-    that duplicate an existing one.
-
-    Returns the number actually inserted (which is < len(rows) when the
-    dedup index rejected duplicates).
+    """Appends validated rows, skipping duplicates. Returns the number
+    actually inserted.
     """
     if not rows:
         return 0
@@ -307,9 +291,8 @@ def insert_rows(conn: sqlite3.Connection, rows: Sequence[Mapping[str, Any]]) -> 
 
 
 def latest_prices(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """One row per product listing, carrying its most recently recorded
-    price. Done in SQL rather than by scanning the full history in Python,
-    so this stays cheap as history grows.
+    """One row per listing with its most recent price. Done in SQL so it
+    stays cheap as history grows.
     """
     cursor = conn.execute(
         f"""

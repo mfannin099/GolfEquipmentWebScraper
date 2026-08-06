@@ -1,34 +1,16 @@
-"""Scrapes club name + price from tgw.com (The Golf Warehouse) search results.
+"""Scrapes club listings from tgw.com (The Golf Warehouse).
 
-Fronted by Cloudflare, but only as a CDN/WAF - no JS challenge is served
-to a plain `requests` call with a browser User-Agent, unlike
-rockbottomgolf.com (which this scraper replaces). Search lives at
-`/l/search?k=<query>` and returns fully server-rendered `.product-tile`
-cards with real prices, and (when discounted) both the sale and
-"was" price right on the card - no product-page visit needed for
-basic sale detection, unlike carlsgolfland.com.
+Cloudflare-fronted but only as a CDN/WAF - no JS challenge for a plain
+`requests` call with a browser User-Agent. Search at `/l/search?k=`
+returns server-rendered `.product-tile` cards carrying price and, when
+discounted, the "was" price, so sale detection needs no product page.
 
-The `/l/search` endpoint does loose keyword matching and mixes in
-accessories (headcovers, shafts, grips) alongside actual clubs for
-queries like "TaylorMade 7 wood" - config.NON_CLUB_TERMS filters those
-out, via the shared BaseScraper._is_wanted.
+Tiles also give the SKU (the anchor's `pid`), the image, and - on about
+half of listings - a star rating and review count.
 
-fairway_wood_7 and iron_set still need a product-page visit to resolve
-the specific variant, same as the other two sites - each product page
-embeds a `var productJson = {...}` blob (mirrors carlsgolfland's
-jsonConfig) with a `Variants` list. iron_set variants carry a
-`SetComposition` string (e.g. "#5-PW"); fairway_wood_7 variants carry a
-numeric `ClubLoft` (a "7 wood" is loft 21.0 - TGW doesn't label wood
-variants by number, only by degree). The same productJson blob also
-carries a rich HTML `Description` field, pulled down as `description`
-on every result (not just sale/variant ones) since it's the same
-request either way.
-
-Listing tiles also carry three fields for free, no product-page visit
-needed: the SKU (the `pid` attribute on the card's anchor), the product
-image, and - on roughly half of listings - a star rating and review
-count. The product page's `ReviewData` block carries the same rating at
-full precision, so it wins when a product page is fetched anyway.
+Product pages embed a `var productJson = {...}` blob whose `Variants`
+resolve the exact loft or set composition, plus stock status, a full
+`Description`, and full-precision `ReviewData`.
 """
 
 import re
@@ -48,8 +30,8 @@ from scraper_base import (
 BASE_URL = "https://www.tgw.com"
 PRODUCT_JSON_MARKER = "var productJson="
 
-# e.g. "4.7 out of 5 star rating (199 reviews )" - tiles without any
-# reviews yet omit the element entirely rather than showing a zero.
+# "4.7 out of 5 star rating (199 reviews )". Unreviewed tiles omit the
+# element rather than showing a zero.
 RATING_RE = re.compile(r"([\d.]+)\s*out of\s*5.*?\(\s*([\d,]+)", re.S)
 
 
@@ -63,9 +45,8 @@ def _parse_rating(text: str | None) -> tuple[float | None, int | None]:
 
 
 def _tile_image_url(img) -> str | None:
-    """Everything past the first couple of tiles is lazy-loaded: `src` holds
-    a placeholder graphic and the real URL sits in `data-src`. Reading only
-    `src` would leave images on ~95% of a page's results.
+    """Tiles past the first couple are lazy-loaded: `src` is a placeholder
+    and the real URL sits in `data-src`.
     """
     if img is None:
         return None
@@ -127,14 +108,11 @@ class TgwScraper(BaseScraper):
     def _match_variant(self, variants: list[dict]) -> dict | None:
         """Picks the variant matching self.variant_target.
 
-        Which field to match on is decided by the shape of the target
-        rather than by club_type: a numeric target ("21.0") is a ClubLoft
-        in degrees, anything else ("5-PW") is a SetComposition substring.
-        That way a new loft-based club type only needs an entry in
-        config.VARIANT_TARGETS, with no change here - keying on club_type
-        instead meant an unrecognised type silently matched nothing.
-
-        Returns None if there's no variant_target or no match found.
+        The target's shape picks the field, not club_type: numeric
+        ("21.0") is a ClubLoft in degrees, anything else ("5-PW") a
+        SetComposition substring. So a new loft-based club type needs only
+        a config.VARIANT_TARGETS entry - keying on club_type meant an
+        unrecognised type silently matched nothing.
         """
         if not self.variant_target or not variants:
             return None
@@ -192,8 +170,7 @@ class TgwScraper(BaseScraper):
 
         details["description"] = clean_text(obj.get("Description"))
 
-        # Full-precision rating/review count, versus the tile's rounded
-        # one-decimal display value.
+        # Full precision, versus the tile's rounded display value.
         review_data = obj.get("ReviewData") or {}
         total_reviews = review_data.get("TotalReviews")
         if total_reviews:
@@ -216,8 +193,7 @@ class TgwScraper(BaseScraper):
                 match.get("SetComposition") if self.club_type == "iron_set"
                 else f'{match.get("ClubLoft")}°'
             )
-            # Variant-level SKU, more specific than the tile's product-level
-            # one (which points at the default variant).
+            # More specific than the tile's product-level SKU.
             details["variant_sku"] = match.get("Sku")
             details["original_price"] = original
             details["discount_pct"] = discount_pct(original, price)
@@ -228,16 +204,13 @@ class TgwScraper(BaseScraper):
         return details
 
     def run(self):
-        # self.max_pages is ignored here: /l/search returns its whole
-        # result set in one response, so there's no page 2 to fetch.
+        # max_pages is ignored: /l/search returns everything in one
+        # response.
         resp = self._get(self._search_url())
         self._parse_page(resp.text)
 
-        # Every result is a candidate for a product-page visit (capped by
-        # max_variant_lookups) since description enrichment is wanted
-        # everywhere here, not just for sale items - unlike
-        # carlsgolfland, tgw.com isn't Cloudflare-throttled so the extra
-        # requests are cheap.
+        # Every result is a candidate: descriptions are wanted
+        # everywhere, not just on sale items.
         for result in self._capped(self.results):
             details = self._fetch_product_details(result["link"])
             result["description"] = details["description"]
