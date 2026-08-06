@@ -30,7 +30,7 @@ from urllib.parse import quote
 
 from bs4 import BeautifulSoup
 
-from config import BRANDS, CLUB_TYPES, MAX_VARIANT_LOOKUPS
+from config import BRANDS, CLUB_TYPES
 from scraper_base import BaseScraper, clean_text, discount_pct, extract_json_blob
 
 BASE_URL = "https://www.carlsgolfland.com"
@@ -83,10 +83,6 @@ def _product_description(soup: BeautifulSoup) -> str | None:
 
 class CarlsGolflandScraper(BaseScraper):
     SITE = "carlsgolfland.com"
-
-    def __init__(self, brand: str, club_type: str, max_pages: int = 3):
-        super().__init__(brand, club_type)
-        self.max_pages = max_pages
 
     def _page_url(self, page: int) -> str:
         url = f"{BASE_URL}/search/{quote(self.query)}"
@@ -214,8 +210,7 @@ class CarlsGolflandScraper(BaseScraper):
         else:
             candidates = [r for r in self.results if r["on_sale"]]
 
-        targets = candidates if MAX_VARIANT_LOOKUPS is None else candidates[:MAX_VARIANT_LOOKUPS]
-        for result in targets:
+        for result in self._capped(candidates):
             details = self._fetch_product_details(result["link"])
             if details["variant_price"] is not None:
                 result["price"] = details["variant_price"]

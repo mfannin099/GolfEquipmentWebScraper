@@ -10,7 +10,8 @@ basic sale detection, unlike carlsgolfland.com.
 
 The `/l/search` endpoint does loose keyword matching and mixes in
 accessories (headcovers, shafts, grips) alongside actual clubs for
-queries like "TaylorMade 7 wood" - NON_CLUB_TERMS filters those out.
+queries like "TaylorMade 7 wood" - config.NON_CLUB_TERMS filters those
+out, via the shared BaseScraper._is_wanted.
 
 fairway_wood_7 and iron_set still need a product-page visit to resolve
 the specific variant, same as the other two sites - each product page
@@ -35,7 +36,7 @@ from urllib.parse import quote, urljoin
 
 from bs4 import BeautifulSoup
 
-from config import BRANDS, CLUB_TYPES, MAX_VARIANT_LOOKUPS
+from config import BRANDS, CLUB_TYPES
 from scraper_base import (
     BaseScraper,
     clean_text,
@@ -46,11 +47,6 @@ from scraper_base import (
 
 BASE_URL = "https://www.tgw.com"
 PRODUCT_JSON_MARKER = "var productJson="
-
-# The /l/search endpoint mixes accessories in with actual clubs for queries
-# like "TaylorMade 7 wood", so these get filtered out on top of the shared
-# brand/men's-only filter.
-NON_CLUB_TERMS = ["headcover", "shaft", "grip", " bag", "glove", "towel"]
 
 # e.g. "4.7 out of 5 star rating (199 reviews )" - tiles without any
 # reviews yet omit the element entirely rather than showing a zero.
@@ -84,12 +80,6 @@ class TgwScraper(BaseScraper):
 
     def _search_url(self) -> str:
         return f"{BASE_URL}/l/search?k={quote(self.query)}"
-
-    def _is_wanted(self, name: str) -> bool:
-        if not super()._is_wanted(name):
-            return False
-        name_lower = name.lower()
-        return not any(term in name_lower for term in NON_CLUB_TERMS)
 
     def _parse_page(self, html: str):
         soup = BeautifulSoup(html, "html.parser")
@@ -135,25 +125,35 @@ class TgwScraper(BaseScraper):
         return True
 
     def _match_variant(self, variants: list[dict]) -> dict | None:
-        """Picks the variant matching self.variant_target - a SetComposition
-        substring for iron_set, a ClubLoft degree match for fairway_wood_7.
+        """Picks the variant matching self.variant_target.
+
+        Which field to match on is decided by the shape of the target
+        rather than by club_type: a numeric target ("21.0") is a ClubLoft
+        in degrees, anything else ("5-PW") is a SetComposition substring.
+        That way a new loft-based club type only needs an entry in
+        config.VARIANT_TARGETS, with no change here - keying on club_type
+        instead meant an unrecognised type silently matched nothing.
+
         Returns None if there's no variant_target or no match found.
         """
         if not self.variant_target or not variants:
             return None
 
-        candidates = []
-        if self.club_type == "iron_set":
+        try:
+            target_loft = float(self.variant_target)
+        except ValueError:
+            target_loft = None
+
+        if target_loft is not None:
+            candidates = [
+                v for v in variants
+                if v.get("ClubLoft") is not None and float(v["ClubLoft"]) == target_loft
+            ]
+        else:
             target = self.variant_target.lower()
             candidates = [
                 v for v in variants
                 if v.get("SetComposition") and target in v["SetComposition"].lower()
-            ]
-        elif self.club_type == "fairway_wood_7":
-            target_loft = float(self.variant_target)
-            candidates = [
-                v for v in variants
-                if v.get("ClubLoft") is not None and float(v["ClubLoft"]) == target_loft
             ]
 
         if not candidates:
@@ -228,16 +228,17 @@ class TgwScraper(BaseScraper):
         return details
 
     def run(self):
+        # self.max_pages is ignored here: /l/search returns its whole
+        # result set in one response, so there's no page 2 to fetch.
         resp = self._get(self._search_url())
         self._parse_page(resp.text)
 
-        # Every result gets a product-page visit (capped by
-        # MAX_VARIANT_LOOKUPS) since description enrichment is wanted
+        # Every result is a candidate for a product-page visit (capped by
+        # max_variant_lookups) since description enrichment is wanted
         # everywhere here, not just for sale items - unlike
         # carlsgolfland, tgw.com isn't Cloudflare-throttled so the extra
         # requests are cheap.
-        targets = self.results if MAX_VARIANT_LOOKUPS is None else self.results[:MAX_VARIANT_LOOKUPS]
-        for result in targets:
+        for result in self._capped(self.results):
             details = self._fetch_product_details(result["link"])
             result["description"] = details["description"]
             if details["review_count"] is not None:
