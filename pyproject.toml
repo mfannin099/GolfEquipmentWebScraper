@@ -5,6 +5,7 @@ description = "Tracks golf club prices across retailer sites into a queryable SQ
 requires-python = ">=3.13"
 dependencies = [
     "beautifulsoup4>=4.15.0",
+    "duckdb>=1.5.5",
     "requests>=2.34.2",
 ]
 
