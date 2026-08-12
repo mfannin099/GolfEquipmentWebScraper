@@ -1,14 +1,14 @@
 """Scrape club prices for a chosen set of brands / club types / sites.
 
-Entry point for the tracker, exposed as the `scrape` console script (see
-pyproject.toml's [project.scripts]). With no arguments it runs the full
-matrix (every configured brand x club type against both sites) and
-appends the results to data/club_prices.db:
+Entry point for the tracker, exposed as the `run_final_scrape` console
+script (see pyproject.toml's [project.scripts]). With no arguments it
+runs the full matrix (every configured brand x club type against both
+sites) and appends the results to data/club_prices.db:
 
-    uv run scrape
-    uv run scrape --brand Titleist --club-type driver
-    uv run scrape --site tgw.com --max-variant-lookups all
-    uv run scrape --brand Srixon --club-type driver --dry-run
+    uv run run_final_scrape
+    uv run run_final_scrape --brand Titleist --club-type driver
+    uv run run_final_scrape --site tgw.com --max-variant-lookups all
+    uv run run_final_scrape --brand Srixon --club-type driver --dry-run
 
 Split into scrape() and save() so a caller can use either half: a UI
 showing live results calls scrape() and renders the rows without touching
@@ -22,13 +22,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from .carlsgolfland_scraper import CarlsGolflandScraper
+from .carlsgolfland_helper import CarlsGolflandScraper
 from .config import BRANDS, CLUB_TYPES, MAX_VARIANT_LOOKUPS
 from .database import DB_PATH, connect, insert_rows, latest_prices, row_count, validate_rows
 from .logging_config import get_logger
+from .main_scraper import USE_CONFIG_DEFAULT
 from .price_alerts import log_price_drops
-from .scraper_base import USE_CONFIG_DEFAULT
-from .tgw_scraper import TgwScraper
+from .tgw_helper import TgwScraper
 
 # Keys come off the classes so a --site value can't drift from the DB's
 # `site` column. Adding a site here joins the matrix and the CLI at once.

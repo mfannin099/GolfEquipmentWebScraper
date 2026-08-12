@@ -19,7 +19,7 @@ from urllib.parse import quote, urljoin
 from bs4 import BeautifulSoup
 
 from .config import BRANDS, CLUB_TYPES
-from .scraper_base import (
+from .main_scraper import (
     BaseScraper,
     clean_text,
     discount_pct,

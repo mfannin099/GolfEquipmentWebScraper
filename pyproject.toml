@@ -10,7 +10,7 @@ dependencies = [
 ]
 
 [project.scripts]
-scrape = "club_price_tracker.scrape:main"
+run_final_scrape = "club_price_tracker.run_final_scrape:main"
 
 [build-system]
 requires = ["hatchling"]

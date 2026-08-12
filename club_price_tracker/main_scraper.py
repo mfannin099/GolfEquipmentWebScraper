@@ -1,8 +1,8 @@
 """Shared plumbing for the per-site club scrapers.
 
 Subclasses set SITE, implement run(), and return dicts whose keys match
-database.COLUMNS minus run_timestamp/extracted_date, which scrape.save()
-stamps on.
+database.COLUMNS minus run_timestamp/extracted_date, which
+run_final_scrape.save() stamps on.
 """
 
 import json

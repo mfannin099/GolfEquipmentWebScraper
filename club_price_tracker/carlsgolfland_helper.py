@@ -20,7 +20,7 @@ from urllib.parse import quote
 from bs4 import BeautifulSoup
 
 from .config import BRANDS, CLUB_TYPES
-from .scraper_base import BaseScraper, clean_text, discount_pct, extract_json_blob
+from .main_scraper import BaseScraper, clean_text, discount_pct, extract_json_blob
 
 BASE_URL = "https://www.carlsgolfland.com"
 JSON_CONFIG_MARKER = '"jsonConfig"'
