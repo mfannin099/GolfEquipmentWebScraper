@@ -10,11 +10,11 @@ Everything lives in `club_price_tracker/`:
 
 | File | What it does |
 |---|---|
-| **`scrape.py`** | **Entry point.** CLI + the `scrape()` / `save()` functions the whole pipeline runs through. |
+| **`run_final_scrape.py`** | **Entry point.** CLI + the `scrape()` / `save()` functions the whole pipeline runs through. |
 | `config.py` | Brands, club types, search filters, rate limit, variant targets. The only file you edit to change *what* gets tracked. |
-| `scraper_base.py` | `BaseScraper` + shared helpers: rate-limited GET, embedded-JSON extraction, money/discount math, the listing filter. |
-| `tgw_scraper.py` | tgw.com listing + product-page parsing. |
-| `carlsgolfland_scraper.py` | carlsgolfland.com listing + product-page parsing. |
+| `main_scraper.py` | `BaseScraper` + shared helpers: rate-limited GET, embedded-JSON extraction, money/discount math, the listing filter. |
+| `tgw_helper.py` | tgw.com listing + product-page parsing. |
+| `carlsgolfland_helper.py` | carlsgolfland.com listing + product-page parsing. |
 | `database.py` | SQLite schema, validation, inserts. `SCHEMA` generates the DDL, the INSERT, and the row validator. |
 | `price_alerts.py` | Compares a run against each listing's last recorded price and logs drops. |
 | `rate_limiter.py` | Minimum interval between requests to a site. |
@@ -27,28 +27,28 @@ Everything lives in `club_price_tracker/`:
 Run everything — every configured brand × club type against both sites:
 
 ```bash
-uv run scrape
+uv run run_final_scrape
 ```
 
 Narrow it down. `--brand` takes any search term, not just the six in `config.py`:
 
 ```bash
-uv run scrape --brand Titleist --club-type putter
+uv run run_final_scrape --brand Titleist --club-type putter
 ```
 
 Preview without writing to the database:
 
 ```bash
-uv run scrape --brand Srixon --club-type driver --dry-run
+uv run run_final_scrape --brand Srixon --club-type driver --dry-run
 ```
 
 `--max-variant-lookups` controls how many product pages get visited per combination — that's where descriptions, stock status and exact variant prices come from, at one rate-limited request each. `all` lifts the cap for a full collection run:
 
 ```bash
-uv run scrape --site tgw.com --max-variant-lookups all
+uv run run_final_scrape --site tgw.com --max-variant-lookups all
 ```
 
-`uv run scrape --help` lists the rest (`--site`, `--max-pages`, `--db`, `--log-file`). `scrape` is a console script defined in `pyproject.toml`'s `[project.scripts]` — it resolves to `club_price_tracker.scrape:main` and can be run from anywhere in the repo, no `cd` needed.
+`uv run run_final_scrape --help` lists the rest (`--site`, `--max-pages`, `--db`, `--log-file`). `run_final_scrape` is a console script defined in `pyproject.toml`'s `[project.scripts]` — it resolves to `club_price_tracker.run_final_scrape:main` and can be run from anywhere in the repo, no `cd` needed.
 
 ## The data
 

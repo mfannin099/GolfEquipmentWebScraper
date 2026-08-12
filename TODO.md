@@ -4,7 +4,7 @@
 
 Goal: a user picks brand / club type / site and either searches the stored history or triggers a live scrape.
 
-The pieces already in place: `scrape.scrape()` returns rows without touching the DB, `scrape.save()` persists them, `--brand` accepts free text, and WAL mode lets the app read while a scrape writes. Streamlit is the shortest path — one file, no callbacks, `st.dataframe` handles the table for free.
+The pieces already in place: `run_final_scrape.scrape()` returns rows without touching the DB, `run_final_scrape.save()` persists them, `--brand` accepts free text, and WAL mode lets the app read while a scrape writes. Streamlit is the shortest path — one file, no callbacks, `st.dataframe` handles the table for free.
 
 **Build in this order:**
 
@@ -26,14 +26,14 @@ The pieces already in place: `scrape.scrape()` returns rows without touching the
 
 ## Scheduling the scraper
 
-Nothing about `scrape.py` needs to change to be scheduled — it's already a plain CLI with a proper exit code (1 when nothing was scraped) and `--log-file`.
+Nothing about `run_final_scrape.py` needs to change to be scheduled — it's already a plain CLI with a proper exit code (1 when nothing was scraped) and `--log-file`.
 
 - [ ] **Fix these two first — they matter much more once runs are unattended:**
-  - `scrape.py` holds every combination in memory and only calls `save()` at the end, so a crash on the last of 84 combinations discards the whole ~15-minute run. Save per combination (or per brand).
+  - `run_final_scrape.py` holds every combination in memory and only calls `save()` at the end, so a crash on the last of 84 combinations discards the whole ~15-minute run. Save per combination (or per brand).
   - `RateLimiter` is per scraper instance, so the 1.5s floor only applies *within* one brand/club-type combination — each new combination's first request goes out immediately. A per-site shared limiter would hold the real floor. Worth fixing before running unattended and repeatedly against someone else's site.
 - [ ] **Pick a scheduler.** `launchd` is the right one for macOS — `cron` exists but Apple has deprecated it, and it won't run if the machine is asleep at the scheduled time whereas `launchd` catches up on wake.
   - A `~/Library/LaunchAgents/com.mattfannin.clubprices.plist` with `StartCalendarInterval` (daily, off-peak).
-  - Must invoke by absolute path — `launchd` gets a minimal environment, so bare `uv` or `scrape` won't resolve. Either `/full/path/.venv/bin/scrape` (the installed console script) or `/full/path/to/uv run --project /full/path scrape`.
+  - Must invoke by absolute path — `launchd` gets a minimal environment, so bare `uv` or `run_final_scrape` won't resolve. Either `/full/path/.venv/bin/run_final_scrape` (the installed console script) or `/full/path/to/uv run --project /full/path run_final_scrape`.
   - `WorkingDirectory` no longer matters for imports now that `club_price_tracker` is a real package with relative imports — `DB_PATH`/`LOG_DIR` resolve from `__file__` either way.
   - Redirect `StandardOutPath`/`StandardErrorPath`, or a failure is silent.
 - [ ] **Decide the cadence.** Daily is plenty — prices don't move hourly, and each run is ~900 rows, so a year of daily runs is ~330k rows. SQLite handles that without trouble.
@@ -43,7 +43,7 @@ Nothing about `scrape.py` needs to change to be scheduled — it's already a pla
 
 ## Scrapers
 
-- [ ] **Build a golfdirectnow.com scraper** - viable, Shopify-based. Also Cloudflare-fronted but no challenge triggered by plain `requests`. Standard Shopify `/search?q={query}` and `/collections/golf-clubs` both return server-rendered `.card__` product cards with real names (confirmed `Callaway Elyte X Driver` for query `Callaway driver`) and prices under `.price__regular .price-item--regular` (format `$ 399.99`, note the space after `$`). Adding it is a new `BaseScraper` subclass plus one entry in `scrape.SCRAPERS` - it then joins the matrix and the CLI's `--site` choices automatically.
+- [ ] **Build a golfdirectnow.com scraper** - viable, Shopify-based. Also Cloudflare-fronted but no challenge triggered by plain `requests`. Standard Shopify `/search?q={query}` and `/collections/golf-clubs` both return server-rendered `.card__` product cards with real names (confirmed `Callaway Elyte X Driver` for query `Callaway driver`) and prices under `.price__regular .price-item--regular` (format `$ 399.99`, note the space after `$`). Adding it is a new `BaseScraper` subclass plus one entry in `run_final_scrape.SCRAPERS` - it then joins the matrix and the CLI's `--site` choices automatically.
 - [ ] Link the 18 birdies project on github... allow user to pull 18 birdies data and analyze
 
 ## Data quality & coverage

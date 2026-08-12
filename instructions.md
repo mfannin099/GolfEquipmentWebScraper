@@ -9,15 +9,15 @@ accumulated history in SQLite.
 uv sync
 ```
 
-Installs `club_price_tracker` editable into `.venv/` and resolves the `scrape` console script.
+Installs `club_price_tracker` editable into `.venv/` and resolves the `run_final_scrape` console script.
 
 ## 2. Run a scrape
 
 ```bash
-uv run scrape                                            # full matrix: all brands x all club types x both sites (~15 min)
-uv run scrape --brand Titleist --club-type putter        # one brand, one club type, both sites
-uv run scrape --brand Srixon --club-type driver --dry-run # preview only, nothing written to the DB
-uv run scrape --site tgw.com --max-variant-lookups all    # uncap product-page requests for complete descriptions/stock
+uv run run_final_scrape                                            # full matrix: all brands x all club types x both sites (~15 min)
+uv run run_final_scrape --brand Titleist --club-type putter        # one brand, one club type, both sites
+uv run run_final_scrape --brand Srixon --club-type driver --dry-run # preview only, nothing written to the DB
+uv run run_final_scrape --site tgw.com --max-variant-lookups all    # uncap product-page requests for complete descriptions/stock
 ```
 
 Useful flags:
@@ -28,7 +28,7 @@ Useful flags:
 - `--dry-run` — scrape and log results without touching `data/club_prices.db`.
 - `--log-file` — also write this run's logs to a timestamped file under `club_price_tracker/logs/`.
 
-Run `uv run scrape --help` for the full list.
+Run `uv run run_final_scrape --help` for the full list.
 
 ## 3. Query stored history
 
@@ -54,7 +54,7 @@ pricing ("Add To Cart To See Price"), not a parse failure.
 ## 4. Pulling data programmatically (no CLI)
 
 ```python
-from club_price_tracker.scrape import scrape, save
+from club_price_tracker.run_final_scrape import scrape, save
 
 rows = scrape(["Titleist"], ["putter"], ["tgw.com"], max_variant_lookups=0)  # live, unsaved
 summary = save(rows)  # stamps run_timestamp, validates, checks for price drops, appends to DB
