@@ -27,28 +27,28 @@ Everything lives in `club_price_tracker/`:
 Run everything — every configured brand × club type against both sites:
 
 ```bash
-cd club_price_tracker && uv run python scrape.py
+uv run scrape
 ```
 
 Narrow it down. `--brand` takes any search term, not just the six in `config.py`:
 
 ```bash
-cd club_price_tracker && uv run python scrape.py --brand Titleist --club-type putter
+uv run scrape --brand Titleist --club-type putter
 ```
 
 Preview without writing to the database:
 
 ```bash
-cd club_price_tracker && uv run python scrape.py --brand Srixon --club-type driver --dry-run
+uv run scrape --brand Srixon --club-type driver --dry-run
 ```
 
 `--max-variant-lookups` controls how many product pages get visited per combination — that's where descriptions, stock status and exact variant prices come from, at one rate-limited request each. `all` lifts the cap for a full collection run:
 
 ```bash
-cd club_price_tracker && uv run python scrape.py --site tgw.com --max-variant-lookups all
+uv run scrape --site tgw.com --max-variant-lookups all
 ```
 
-`uv run python scrape.py --help` lists the rest (`--site`, `--max-pages`, `--db`, `--log-file`).
+`uv run scrape --help` lists the rest (`--site`, `--max-pages`, `--db`, `--log-file`). `scrape` is a console script defined in `pyproject.toml`'s `[project.scripts]` — it resolves to `club_price_tracker.scrape:main` and can be run from anywhere in the repo, no `cd` needed.
 
 ## The data
 

@@ -33,8 +33,8 @@ Nothing about `scrape.py` needs to change to be scheduled — it's already a pla
   - `RateLimiter` is per scraper instance, so the 1.5s floor only applies *within* one brand/club-type combination — each new combination's first request goes out immediately. A per-site shared limiter would hold the real floor. Worth fixing before running unattended and repeatedly against someone else's site.
 - [ ] **Pick a scheduler.** `launchd` is the right one for macOS — `cron` exists but Apple has deprecated it, and it won't run if the machine is asleep at the scheduled time whereas `launchd` catches up on wake.
   - A `~/Library/LaunchAgents/com.mattfannin.clubprices.plist` with `StartCalendarInterval` (daily, off-peak).
-  - Must invoke the venv's Python by absolute path — `launchd` gets a minimal environment, so bare `uv` or `python` won't resolve. Either `/full/path/.venv/bin/python scrape.py` or `/full/path/to/uv run --project /full/path python scrape.py`.
-  - Set `WorkingDirectory` to `club_price_tracker/`, since the modules use flat imports and `DB_PATH` resolves relative to the file.
+  - Must invoke by absolute path — `launchd` gets a minimal environment, so bare `uv` or `scrape` won't resolve. Either `/full/path/.venv/bin/scrape` (the installed console script) or `/full/path/to/uv run --project /full/path scrape`.
+  - `WorkingDirectory` no longer matters for imports now that `club_price_tracker` is a real package with relative imports — `DB_PATH`/`LOG_DIR` resolve from `__file__` either way.
   - Redirect `StandardOutPath`/`StandardErrorPath`, or a failure is silent.
 - [ ] **Decide the cadence.** Daily is plenty — prices don't move hourly, and each run is ~900 rows, so a year of daily runs is ~330k rows. SQLite handles that without trouble.
 - [ ] **Raise `MAX_VARIANT_LOOKUPS` for scheduled runs** (`--max-variant-lookups all`) — nobody's waiting on it, and it's the only way `description`/`stock_status` get filled in beyond the first few results. Expect a much longer run; check total wall time before committing to a schedule.

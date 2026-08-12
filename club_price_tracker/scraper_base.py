@@ -11,7 +11,7 @@ import re
 import requests
 from bs4 import BeautifulSoup, Tag
 
-from config import (
+from .config import (
     BRAND_ALIASES,
     CLUB_TYPE_KEYWORDS,
     MAX_VARIANT_LOOKUPS,
@@ -21,7 +21,7 @@ from config import (
     VARIANT_TARGETS,
     build_query,
 )
-from rate_limiter import RateLimiter
+from .rate_limiter import RateLimiter
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; ClubPriceTracker/0.1)"}
 REQUEST_TIMEOUT = 15
